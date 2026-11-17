@@ -4,6 +4,8 @@ import { CFG } from '@sim';
 import { MAX_PLAYERS } from './game/render';
 
 export const CONTACT_EMAIL = '[WPISZ ADRES E-MAIL]';
+/** dopóki adres nie jest ustawiony, strona Kontakt nie pokazuje atrapy */
+const HAS_CONTACT = !CONTACT_EMAIL.startsWith('[');
 
 interface Page {
   title: string;
@@ -56,10 +58,12 @@ const PAGES: Record<string, Page> = {
   },
   kontakt: {
     title: 'Kontakt',
-    body: `
+    body: HAS_CONTACT
+      ? `
       <p>Masz pytanie, pomysł albo chcesz usunąć konto? Napisz do nas:</p>
       <p><b>${CONTACT_EMAIL}</b></p>
-      <p>Odpowiadamy zwykle w ciągu kilku dni roboczych.</p>`,
+      <p>Odpowiadamy zwykle w ciągu kilku dni roboczych.</p>`
+      : '<p>Dane kontaktowe pojawią się tutaj wkrótce.</p>',
   },
 };
 
