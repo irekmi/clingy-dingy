@@ -4,26 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#1f2028" />
-    <title>Clingy Dingy – wspinaczka 1 na 1</title>
+    <title>Clingy Dingy – wspinaczka na czas</title>
   </head>
   <body>
     <section id="game" class="game">
       <div class="split">
         <div class="panel" id="panel-me"><canvas id="cv-me" aria-label="Twoja ściana"></canvas></div>
-        <div class="panel" id="panel-opp"><canvas id="cv-opp" aria-label="Ściana przeciwnika"></canvas></div>
+        <div class="opp-area" id="opp-area"><div id="opp-grid" class="opp-grid"></div></div>
       </div>
 
-      <!-- HUD 4B: wąski pasek transmisji (mieści się między ścianami) -->
+      <!-- HUD 4B: wąski pasek transmisji (nie zasłania torów) -->
       <div id="hud" class="hud hidden" aria-live="off">
         <div class="hud-bar">
-          <div class="hud-p me"><span class="av"></span><div class="hud-txt"><b id="hud-me-name"></b><small id="hud-me-sub"></small></div></div>
+          <div class="hud-p me" id="hud-me"><span class="av"></span><div class="hud-txt"><b id="hud-me-name"></b><small id="hud-me-sub"></small></div></div>
           <div class="hud-time"><small>CZAS</small><b id="hud-time">0.00</b></div>
-          <div class="hud-p opp"><div class="hud-txt"><b id="hud-op-name"></b><small id="hud-op-sub"></small></div><span class="av"></span></div>
+          <div class="hud-p opp" id="hud-op"><div class="hud-txt"><b id="hud-op-name"></b><small id="hud-op-sub"></small></div><span class="av"></span></div>
         </div>
-        <div class="hud-race">
-          <span>0 m</span><div class="track"><i id="bar-me"></i></div><span>24 m</span>
-          <span>0 m</span><div class="track"><i id="bar-op" class="op"></i></div><span>24 m</span>
-        </div>
+        <div class="hud-race" id="hud-race"></div>
       </div>
 
       <div id="overlay" class="overlay"></div>

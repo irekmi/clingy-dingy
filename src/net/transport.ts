@@ -5,6 +5,8 @@ export interface PlayerMeta {
   /** losowy token gotowości (null = niegotowy) – host zużywa go przy starcie, więc nie da się wystartować 2x */
   ready: string | null;
   joinedAt: number;
+  /** gracz zalogowany (wynik może trafić do rankingu) */
+  acct?: boolean;
 }
 
 export type Handler = (payload: any) => void;

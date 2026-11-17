@@ -23,11 +23,13 @@ Styl: płaska ilustracja wektorowa hali wspinaczkowej. Gra nazywa się **Clingy 
 - [ ] **Konfigurator postaci** (później, np. razem z kontami): fryzura, kolor skóry, koszulka, spodnie, buty, opaska. Sylwetka 2C jako baza, wybór zapisany w profilu gracza i wysyłany przeciwnikowi w Presence.
 
 ## Etap 2: konta i uczciwość
-- [ ] Supabase Auth (konto anonimowe → e-mail lub Google), stały nick, historia gier
+- [x] Konta: Supabase Auth (e-mail + hasło z potwierdzeniem), profil z unikalnym nickiem, gość może grać bez konta (bez rankingu)
+- [ ] Historia gier gracza, zmiana nicku, reset hasła
 - [ ] **Mecz tworzony na serwerze**: Edge Function `create-match` zwraca `matchId` i zapisuje go w tabeli `matches`. Wynik da się wtedy zgłosić tylko do meczu, który faktycznie się odbył, i tylko raz.
 - [ ] **Strumieniowanie wciśnięć w trakcie biegu** (np. paczka co 0,5 s do serwera). Serwer porównuje swój zegar z deklarowanymi czasami, więc nie da się „wymyślić” idealnego logu po fakcie.
 - [ ] Wykrywanie botów: statystyka trafień (np. 100% perfekt przy ±5 ms przez wiele gier), rozkład odchyleń, ręczna moderacja
-- [ ] Ranking w grze (widok `leaderboard`)
+- [x] Ranking ogólny (najlepszy czas każdego zalogowanego gracza) + ranking pokoju (najlepsze czasy i wygrane w serii rewanży)
+- [x] Pokoje do 6 graczy: Twoja ściana po lewej, przeciwnicy w siatce, wyniki z miejscami
 - [ ] Rozstrzygnięcie zwycięzcy po stronie serwera (porównanie dwóch zweryfikowanych wyników)
 
 ## Etap 3: monetyzacja (dopiero po wyjaśnieniu kwestii prawnych)

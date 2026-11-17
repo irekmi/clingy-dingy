@@ -8,8 +8,9 @@ const key = import.meta.env.VITE_SUPABASE_KEY as string | undefined;
 export const supabaseConfigured = Boolean(url && key && !url.includes('TWOJ-PROJEKT'));
 
 let client: SupabaseClient | null = null;
-function getClient(): SupabaseClient {
-  if (!client) client = createClient(url!, key!, { auth: { persistSession: false } });
+export function getClient(): SupabaseClient {
+  // sesja logowania zapamiętana w przeglądarce; link z e-maila potwierdzającego loguje automatycznie
+  if (!client) client = createClient(url!, key!, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   return client;
 }
 
@@ -35,7 +36,7 @@ export class SupabaseTransport implements RoomTransport {
       const list: PlayerMeta[] = [];
       for (const entries of Object.values(state)) {
         const m = entries[entries.length - 1];
-        if (m && typeof m.id === 'string') list.push({ id: m.id, nick: m.nick, ready: m.ready, joinedAt: m.joinedAt });
+        if (m && typeof m.id === 'string') list.push({ id: m.id, nick: m.nick, ready: m.ready, joinedAt: m.joinedAt, acct: !!m.acct });
       }
       this.playersCb(list);
     });
@@ -83,7 +84,7 @@ export interface SubmitBody {
 }
 
 /** Wysyła wynik do Edge Function, która odtwarza bieg i zapisuje zweryfikowany czas w bazie. */
-export async function submitResult(body: SubmitBody): Promise<{ valid: boolean; verifiedMs: number | null }> {
+export async function submitResult(body: SubmitBody): Promise<{ valid: boolean; verifiedMs: number | null; ranked?: boolean }> {
   const { data, error } = await getClient().functions.invoke('submit-result', { body });
   if (error) throw error;
   return data;

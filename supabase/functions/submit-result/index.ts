@@ -51,11 +51,26 @@ Deno.serve(async (req) => {
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
     auth: { persistSession: false },
   });
+
+  // Zalogowany gracz: token sesji (JWT) w nagłówku Authorization. Gość wysyła tylko klucz publiczny.
+  let userId: string | null = null;
+  let finalNick = nick.trim();
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  if (token.split('.').length === 3) {
+    const { data } = await supabase.auth.getUser(token);
+    if (data.user) {
+      userId = data.user.id;
+      const { data: prof } = await supabase.from('profiles').select('nick').eq('id', userId).maybeSingle();
+      if (prof?.nick) finalNick = prof.nick;
+    }
+  }
+
   const { error } = await supabase.from('race_results').insert({
     match_id: matchId,
     room_code: room,
     player_id: playerId,
-    nick: nick.trim(),
+    user_id: userId,
+    nick: finalNick,
     claimed_ms: claimedMs,
     verified_ms: verifiedMs,
     valid,
@@ -69,5 +84,5 @@ Deno.serve(async (req) => {
     console.error(error);
     return json({ error: 'db error' }, 500);
   }
-  return json({ valid, verifiedMs });
+  return json({ valid, verifiedMs, ranked: userId !== null && valid });
 });

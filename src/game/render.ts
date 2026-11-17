@@ -5,7 +5,8 @@ import { CFG, type Feedback, type Route } from '@sim';
 // ześlizg, szczyt. Wszystko rysujemy w „jednostkach projektu” (jak na kanwie Design: odstęp
 // chwytów = 100) i skalujemy do rozmiaru canvasa.
 
-export type Look = 'me' | 'opp';
+/** Numer miejsca w pokoju (0–5) – wyznacza kolory i wygląd wspinacza. */
+export type Look = number;
 
 export interface ClimberView {
   route: Route;
@@ -51,18 +52,41 @@ interface Colors {
   curls: boolean;
 }
 
-const LOOKS: Record<Look, Colors> = {
-  me: {
+const LOOKS: Colors[] = [
+  {
     skin: '#d39a62', skinLine: '#7d4f2c', shirt: '#2563a8', shirtLine: '#173f6e',
     legs: '#2b3150', legsLine: '#151826', shoe: '#f2b233', shoeLine: '#a87412',
     hair: '#3a2a20', hairLine: '#22170f', band: '#e5484d', curls: false,
   },
-  opp: {
+  {
     skin: '#a8693d', skinLine: '#5e3a1f', shirt: '#e2672f', shirtLine: '#9c3f17',
     legs: '#3a2e48', legsLine: '#1d1626', shoe: '#e5484d', shoeLine: '#9e2a2e',
     hair: '#1d1a18', hairLine: '#0d0b0a', band: null, curls: true,
   },
-};
+  {
+    skin: '#e3b48c', skinLine: '#9a6a45', shirt: '#2f9e5a', shirtLine: '#1d6b3c',
+    legs: '#2d3a33', legsLine: '#141b17', shoe: '#5b8fd1', shoeLine: '#2f5d97',
+    hair: '#c9a04a', hairLine: '#8a6a2a', band: '#2563a8', curls: false,
+  },
+  {
+    skin: '#8a5532', skinLine: '#4f2f1a', shirt: '#7c4dbd', shirtLine: '#50307f',
+    legs: '#2b2b33', legsLine: '#141418', shoe: '#f2c94c', shoeLine: '#a37a12',
+    hair: '#2a1a12', hairLine: '#120b07', band: null, curls: true,
+  },
+  {
+    skin: '#f0c9a4', skinLine: '#a77e5a', shirt: '#d6457f', shirtLine: '#93284f',
+    legs: '#2b3150', legsLine: '#151826', shoe: '#2fbf71', shoeLine: '#1b7a47',
+    hair: '#a5462a', hairLine: '#6b2a17', band: '#2fbf71', curls: false,
+  },
+  {
+    skin: '#c48a5a', skinLine: '#7a5432', shirt: '#1f9aa6', shirtLine: '#126770',
+    legs: '#3a2e48', legsLine: '#1d1626', shoe: '#e2672f', shoeLine: '#9c3f17',
+    hair: '#111111', hairLine: '#000000', band: null, curls: true,
+  },
+];
+/** kolory graczy (koszulki) – do UI */
+export const PLAYER_COLORS = LOOKS.map((l) => l.shirt);
+export const MAX_PLAYERS = LOOKS.length;
 
 const PATH = {
   torso: new Path2D('M-14 -3 Q0 -7 14 -3 L17 29 Q16 51 0 53 Q-16 51 -17 29 Z'),
@@ -609,14 +633,14 @@ export class ClimbView {
       ctx.fill();
     }
 
-    if (v.present) drawClimber(ctx, LOOKS[v.look], pose);
+    if (v.present) drawClimber(ctx, LOOKS[v.look % LOOKS.length], pose);
 
     // komunikat w stylu komiksowym
     if (v.present && v.feedback !== 'none' && v.feedbackAge < 700) {
       ctx.save();
       ctx.globalAlpha = 1 - v.feedbackAge / 700;
       ctx.translate(pose.S.x, pose.S.y - 95 - v.feedbackAge * 0.03);
-      ctx.rotate(v.look === 'me' ? -0.1 : 0.09);
+      ctx.rotate(v.look % 2 === 0 ? -0.1 : 0.09);
       ctx.font = '900 40px Nunito, system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.lineJoin = 'round';

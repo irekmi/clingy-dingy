@@ -1,6 +1,17 @@
-project_id = "patyczaki-wspinaczka"
+project_id = "clingy-dingy"
+
+[auth]
+# Linki z e-maili (potwierdzenie konta) wracają do gry na GitHub Pages; localhost do testów.
+site_url = "https://irekmi.github.io/clingy-dingy/"
+additional_redirect_urls = ["https://irekmi.github.io/clingy-dingy/", "http://localhost:5173/"]
+enable_signup = true
+minimum_password_length = 6
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
 
 [functions.submit-result]
 # Gra używa publicznego klucza (publishable/anon), który nie zawsze jest JWT.
-# Funkcja sama waliduje dane i odtwarza bieg, więc weryfikacja JWT nie jest tu potrzebna.
+# Funkcja sama waliduje dane i odtwarza bieg; token zalogowanego gracza sprawdza sama.
 verify_jwt = false
