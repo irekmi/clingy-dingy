@@ -31,7 +31,7 @@ Styl: płaska ilustracja wektorowa hali wspinaczkowej. Gra nazywa się **Clingy 
 - [x] Ranking ogólny (najlepszy czas każdego zalogowanego gracza, bez wyników podejrzanych) + ranking pokoju (najlepsze czasy i wygrane w serii rewanży)
 - [x] Pokoje do 6 graczy: Twoja ściana po lewej, przeciwnicy w siatce, wyniki z miejscami
 - [x] Zwycięzca rozstrzygany po stronie serwera: gdy wszyscy uczestnicy zgłoszą wyniki, serwer zapisuje `winner_player_id` (liczone są tylko wyniki poprawne i niepodejrzane)
-- [ ] Panel moderatora: przegląd wyników z flagami (), odblokowanie lub usunięcie
+- [ ] Panel moderatora: przegląd wyników z flagami (`suspect`), odblokowanie lub usunięcie
 - [ ] Zmiana adresu e-mail i usuwanie konta przez gracza
 
 ## Etap 3: monetyzacja z reklam (Google AdSense)
