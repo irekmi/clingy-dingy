@@ -223,6 +223,67 @@ function poseTop(cx: number): Pose {
   return { S: pt(cx, LEDGE_Y - 108), angle: 0, arms: [arm, mirror(arm)], legs: [leg, mirror(leg)] };
 }
 
+// ---------- idle: the climber is never a statue ----------
+
+type IdleKind = 'hang' | 'top' | 'rest';
+const smooth = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+const lerpP = (a: P, b: P, w: number) => pt(a.x + (b.x - a.x) * w, a.y + (b.y - a.y) * w);
+/** moves the body by (dx, dy) while the hands stay on their holds */
+function shiftBody(p: Pose, dx: number, dy: number): Pose {
+  return {
+    ...p,
+    S: pt(p.S.x + dx, p.S.y + dy),
+    arms: p.arms.map(([s, e, h]) => [s, pt(e.x - dx / 2, e.y - dy / 2), pt(h.x - dx, h.y - dy)] as [P, P, P]),
+  };
+}
+
+/**
+ * hang (start / waiting): breathing, a slow pendulum sway with lagging legs and, every few seconds,
+ *   one hand lets go to shake out the forearm.
+ * top: breathing and alternating arm pumps.
+ * rest (stuck on a hold mid-route): breathing and a dangling foot.
+ * `seed` (the look) de-syncs players so the walls don't move in unison.
+ */
+function idlePose(p: Pose, kind: IdleKind, now: number, seed: number): Pose {
+  const breath = Math.sin(now / 650 + seed * 1.7);
+  if (kind === 'top') {
+    const q = { ...p, S: pt(p.S.x, p.S.y + breath * 2.4) };
+    q.arms = p.arms.map(([s, e, h], i) => {
+      const pump = Math.max(0, Math.sin(now / 260 + i * Math.PI + seed));
+      return [s, pt(e.x, e.y - pump * 5), pt(h.x + (i ? -1 : 1) * pump * 4, h.y - pump * 12)] as [P, P, P];
+    });
+    return q;
+  }
+  if (kind === 'rest') {
+    const q = shiftBody(p, 0, breath * 1.4);
+    const dangle = Math.sin(now / 520 + seed) * 4;
+    q.legs = p.legs.map(([h, k, f], i) => (i === 0 ? [h, pt(k.x + dangle * 0.4, k.y), pt(f.x + dangle, f.y - Math.abs(dangle) * 0.4)] : [h, k, f]) as [P, P, P]);
+    return q;
+  }
+  // hang
+  const sway = Math.sin(now / 900 + seed);
+  let q = shiftBody(p, sway * 3, breath * 1.8);
+  const lag = Math.sin(now / 900 + seed - 0.7) * 7;
+  q.legs = q.legs.map(([h, k, f]) => [h, pt(k.x + lag * 0.45, k.y), pt(f.x + lag, f.y)] as [P, P, P]);
+  q.angle += Math.sin(now / 1000 + seed) * 0.03;
+  // shake-out: every ~5 s one hand drops beside the body, shakes, and grabs the hold again
+  const cycle = 5200 + (seed % 3) * 450;
+  const tt = (now + seed * 1300) % cycle;
+  const w = smooth(tt / 300) * (1 - smooth((tt - 1300) / 300));
+  if (w > 0) {
+    const side = Math.floor((now + seed * 1300) / cycle) % 2; // alternate hands
+    const dir = side === 0 ? 1 : -1;
+    const shake = Math.sin(now / 38) * 4 * w;
+    q = { ...q, angle: q.angle - dir * 0.07 * w };
+    q.arms = q.arms.map((a, i) => {
+      if (i !== side) return a;
+      const down: [P, P, P] = [a[0], pt(dir * 20, 32), pt(dir * 20 + shake, 62)];
+      return [a[0], lerpP(a[1], down[1], w), lerpP(a[2], down[2], w)] as [P, P, P];
+    });
+  }
+  return q;
+}
+
 // ---------- rysowanie ----------
 
 function fillStroke(ctx: CanvasRenderingContext2D, path: Path2D, fill: string, stroke: string, lw: number) {
@@ -394,6 +455,7 @@ export class ClimbView {
   private vh = 0;
   private cam = NaN;
   private prevHold = 0;
+  private movedAt = 0;
   private shakeUntil = 0;
   private bolts: CanvasPattern | null = null;
   private ro: ResizeObserver;
@@ -537,6 +599,7 @@ export class ClimbView {
     const route = v.route;
 
     if (v.hold < this.prevHold) this.shakeUntil = now + 350;
+    if (v.hold !== this.prevHold) this.movedAt = now;
     this.prevHold = v.hold;
     this.vh += (v.hold - this.vh) * (1 - Math.exp(-dt / 55));
     if (Math.abs(v.hold - this.vh) < 0.002) this.vh = v.hold;
@@ -551,30 +614,28 @@ export class ClimbView {
     };
 
     let pose: Pose;
-    let still = false; // hanging at the start or standing on top: gentle breathing sway
+    let idle: IdleKind | null = null;
     if (v.finished && this.vh > CFG.holds - 0.05) {
       pose = poseTop(cx);
-      still = true;
+      idle = 'top';
     } else if (v.feedback === 'wrong' && v.feedbackAge < 600) {
       const g = at(this.vh);
       pose = poseSlip(g, g.x >= cx ? 1 : -1);
     } else if (this.vh < 0.5) {
       pose = poseHang(pt(cx, 0));
-      still = true;
-    } else pose = poseClimb(at(this.vh), at(this.vh - 1), Math.round(this.vh) % 2);
+      idle = 'hang';
+    } else {
+      pose = poseClimb(at(this.vh), at(this.vh - 1), Math.round(this.vh) % 2);
+      // stuck on a hold for a while (waiting in the results, a long pause): breathe
+      if (this.vh === v.hold && now - this.movedAt > 1200) idle = 'rest';
+    }
 
     const camMax = FLOOR_Y + 30 - Hd;
     const target = Math.max(LEDGE_Y - 200, Math.min(pose.S.y - Hd * 0.62, camMax));
     if (Number.isNaN(this.cam)) this.cam = target;
     else this.cam += (target - this.cam) * (1 - Math.exp(-dt / 110));
     const shake = now < this.shakeUntil ? Math.sin(now / 18) * 4 : 0;
-    if (still) {
-      pose = {
-        ...pose,
-        S: pt(pose.S.x, pose.S.y + Math.sin(now / 650 + v.look * 1.7) * 2.4),
-        angle: pose.angle + Math.sin(now / 1000 + v.look) * 0.025,
-      };
-    }
+    if (idle) pose = idlePose(pose, idle, now, v.look);
 
     ctx.setTransform(this.dpr * k, 0, 0, this.dpr * k, 0, 0);
     ctx.fillStyle = '#e7e6ea';
