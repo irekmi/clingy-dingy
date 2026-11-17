@@ -889,3 +889,92 @@ button:disabled {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ---------- reklamy i strony informacyjne ---------- */
+.ad-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  width: min(728px, calc(100% - 16px));
+  height: 90px;
+  z-index: 5;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(31, 32, 40, 0.6);
+}
+.ad-mock {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed rgba(255, 255, 255, 0.35);
+  border-radius: 10px;
+  color: #d9dbe4;
+  font-size: 13px;
+}
+.game.ads-on .studio {
+  padding-bottom: 112px;
+}
+.foot {
+  display: flex;
+  gap: 4px 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.foot a,
+.doc-nav a:not(.btn),
+.doc a {
+  color: #8fb6ea;
+  font-weight: 800;
+}
+.doc {
+  width: min(760px, 100%);
+  background: var(--ink);
+  border-radius: 18px;
+  padding: 22px 26px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  font-weight: 600;
+}
+.doc h2 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 900;
+}
+.doc h3 {
+  margin: 18px 0 4px;
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--gold);
+}
+.doc p,
+.doc li {
+  line-height: 1.55;
+  color: #e4e6ee;
+}
+.doc kbd {
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  padding: 0 6px;
+  font-size: 13px;
+}
+.doc-nav {
+  display: flex;
+  gap: 8px 16px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+.doc-nav .btn {
+  font-size: 16px;
+  padding: 10px 18px;
+  text-decoration: none;
+}
+.doc-nav a[aria-current='page'] {
+  color: #ffffff;
+  text-decoration: underline;
+}

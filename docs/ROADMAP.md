@@ -32,26 +32,30 @@ Styl: płaska ilustracja wektorowa hali wspinaczkowej. Gra nazywa się **Clingy 
 - [x] Pokoje do 6 graczy: Twoja ściana po lewej, przeciwnicy w siatce, wyniki z miejscami
 - [ ] Rozstrzygnięcie zwycięzcy po stronie serwera (porównanie dwóch zweryfikowanych wyników)
 
-## Etap 3: monetyzacja (dopiero po wyjaśnieniu kwestii prawnych)
+## Etap 3: monetyzacja z reklam (Google AdSense)
 
-Model docelowy: wpisowe np. 0,20 zł od gracza, zwycięzca dostaje 75% puli, 25% to prowizja.
+Decyzja: gra jest darmowa, a zarabia na reklamach. Płatne wpisowe i wypłaty wygranych odpadają, więc znika też problem z ustawą o grach hazardowych, KYC i portfelem.
 
-### Najpierw prawo (to nie jest porada prawna)
-- Ustawa o grach hazardowych obejmuje m.in. gry losowe i zakłady wzajemne, a hazard online w Polsce to w dużej mierze monopol państwa. Gra z wpisowym, wygraną pieniężną i prowizją operatora jest w szarej strefie, nawet jeśli decydują umiejętności.
-- **Art. 2 ust. 6 ustawy:** Minister Finansów na wniosek rozstrzyga w drodze decyzji, czy dana gra jest grą hazardową. To najpewniejsza droga przed uruchomieniem płatności. Wniosek wymaga dokładnego opisu zasad gry, więc dobrze, że mechanika jest deterministyczna i opisana.
-- Konsultacja z prawnikiem (prawo gier i usług płatniczych) oraz z księgowym (VAT od prowizji, rozliczenie wygranych, regulamin, RODO).
-- Ograniczenie wieku 18+ i weryfikacja tożsamości przy wypłatach (KYC/AML).
+### Zrobione w kodzie
+- [x] Pas reklamowy na dole ekranu (`src/ads.ts`). Pokazuje się **tylko poza wyścigiem**: w menu, lobby, na wynikach i stronach informacyjnych. W trakcie biegu reklam nie ma.
+- [x] Strony wymagane przez AdSense: Jak grać, O grze, Polityka prywatności, Kontakt (`src/pages.ts`) z odnośnikami w stopce menu.
+- [x] Reklamy włączają się dopiero po ustawieniu zmiennych `VITE_ADSENSE_CLIENT` i `VITE_ADSENSE_SLOT`. Bez nich w grze nie ma żadnych reklam.
 
-### Ekonomia mikropłatności
-- Opłata operatora za transakcję (procent plus stała kwota) jest większa niż 0,20 zł, więc **nie da się płacić za każdy mecz osobno**.
-- Rozwiązanie: **portfel w grze**. Doładowanie np. od 10 zł (BLIK lub Przelewy24 przez Stripe), mecz pobiera wpisowe z salda, wypłata wygranych od np. 20 zł.
-- Na koncie z 0,20 zł × 2 zostaje 0,10 zł prowizji za mecz. Przy 1000 meczów dziennie daje to ok. 100 zł dziennie przed kosztami i podatkami.
-- Przechowywanie cudzych środków i wypłaty mogą wymagać licencji lub współpracy z instytucją płatniczą. To pytanie do prawnika i operatora płatności. Stripe wymaga uprzedniej zgody na „gry zręcznościowe z nagrodami pieniężnymi”.
+### Do zrobienia przez Ciebie (kolejność ma znaczenie)
+1. **Kup domenę** (np. `clingydingy.pl`) i podepnij ją pod GitHub Pages: Settings → Pages → Custom domain. Do AdSense nie wystarczy adres `*.github.io`.
+2. W Supabase zmień adresy logowania na nową domenę: `site_url` i `additional_redirect_urls` w `supabase/config.toml`, potem `npx supabase config push --yes`.
+3. W `src/pages.ts` ustaw prawdziwy adres e-mail w `CONTACT_EMAIL`. Dane kontaktowe są wymagane w polityce prywatności.
+4. Załóż konto na https://adsense.google.com, dodaj domenę i poczekaj na akceptację (od kilku dni do kilku tygodni). Google lubi witryny z treścią i ruchem, więc najpierw zbierz graczy.
+5. W AdSense włącz **Prywatność i komunikaty** (baner zgody na cookies dla UE, certyfikowany przez Google). Bez zgód nie wolno wyświetlać reklam użytkownikom z EOG.
+6. Po akceptacji: utwórz blok reklamowy (poziomy baner), skopiuj `ca-pub-…` i numer bloku, a w repo ustaw zmienne **VITE_ADSENSE_CLIENT** i **VITE_ADSENSE_SLOT** (Settings → Secrets and variables → Actions → Variables).
+7. Dodaj plik `public/ads.txt` z linią od Google (`google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0`).
 
-### Techniczny szkic (gdy będzie zielone światło)
-- Tabela `wallet_ledger` (tylko zapisy dopisywane, nigdy edytowane): wpłata, wpisowe, wygrana, prowizja, wypłata. Saldo liczone jako suma.
-- Edge Function `stripe-webhook`: **webhook** od operatora płatności potwierdza wpłatę i dopisuje środki do portfela (podpis weryfikowany sekretem).
-- Przy starcie meczu serwer blokuje wpisowe obu graczy. Po rozstrzygnięciu (Etap 2) serwer wypłaca 75% zwycięzcy, a 25% księguje jako prowizję. Przy remisie lub błędzie wpisowe wraca do graczy.
+### Pomysły na później
+- **Reklamy z nagrodą** (np. obejrzyj reklamę, odblokuj skórkę): wymagają programu Google Ad Manager / H5 Games Ads i dobrze łączą się z konfiguratorem postaci.
+- **Reklama pełnoekranowa** co 2–3 rundę, wyłącznie na ekranie wyników.
+- Płatne usunięcie reklam albo skórki postaci jako mały zakup. Wymaga operatora płatności, ale to sprzedaż cyfrowych dóbr, a nie hazard.
+- Zadbać o ruch: udostępnianie linku do pokoju, rewanże, ranking tygodniowy.
 
-### Alternatywa o mniejszym ryzyku
-- Płatne **żetony bez możliwości wypłaty** (zwycięzca dostaje żetony, nie pieniądze) albo reklamy i kosmetyczne skórki patyczaka. Taki model zwykle nie jest hazardem, ale też warto to potwierdzić.
+### Zasady
+- Reklama nigdy nie może przesuwać ani zasłaniać ściany w trakcie biegu: liczy się czas i uczciwość rywalizacji.
+- Zgody na cookies zbiera certyfikowany baner Google. Nie budujemy własnego.

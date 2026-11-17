@@ -28,7 +28,9 @@ import {
   signUp,
   type LeaderRow,
 } from './account';
+import { setAdsVisible } from './ads';
 import { ClimbView, fmtTime, MAX_PLAYERS, PLAYER_COLORS } from './game/render';
+import { footerLinksHtml, infoHtml, isInfoPage } from './pages';
 import { LocalTransport } from './net/localTransport';
 import { SupabaseTransport, submitResult, supabaseConfigured } from './net/supabase';
 import type { PlayerMeta, RoomTransport } from './net/transport';
@@ -676,6 +678,11 @@ class Room {
     }
   }
 
+  /** reklamy tylko poza wyścigiem */
+  adsAllowed(): boolean {
+    return this.phase === 'lobby' || this.phase === 'results';
+  }
+
   private readyBadge(p?: PlayerMeta) {
     return p?.ready ? '<span class="badge ready">GOTOWY ✓</span>' : '<span class="badge wait">czeka…</span>';
   }
@@ -947,6 +954,7 @@ function menuHtml(): string {
       ${acctBar}
       <p class="hint">Pierścień na <span class="blue">niebieskim</span> chwycie → gdy się zamknie, wciśnij ← / → (A / D) → liczy się Twój czas</p>
       <p class="hint small">${esc(MODE_NOTE || 'Online: Supabase Realtime ✓')}</p>
+      ${footerLinksHtml()}
     </section>`);
 }
 
@@ -1067,6 +1075,11 @@ function route() {
     room?.destroy();
     room = new Room(code);
     if (import.meta.env.DEV) (window as unknown as { __room: Room }).__room = room; // tylko do debugowania
+  } else if (/^#\/info\/[a-z-]+$/.test(location.hash) && isInfoPage(location.hash.slice(7))) {
+    room?.destroy();
+    room = null;
+    $('overlay').innerHTML = infoHtml(location.hash.slice(7));
+    $('overlay').querySelector('.studio')?.scrollTo(0, 0);
   } else {
     if (location.hash.includes('access_token') || location.hash.includes('error_description')) return; // obsłuży Supabase Auth
     room?.destroy();
@@ -1088,6 +1101,7 @@ function loop(now: number) {
     meView.draw({ ...idle, look: 0 }, now, dt);
     oppPanels.get('__idle')?.view.draw({ ...idle, look: 1 }, now, dt);
   }
+  setAdsVisible(room ? room.adsAllowed() : true);
   layoutHud();
 }
 

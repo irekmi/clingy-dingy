@@ -3,6 +3,8 @@
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_KEY?: string;
+  readonly VITE_ADSENSE_CLIENT?: string;
+  readonly VITE_ADSENSE_SLOT?: string;
 }
 interface ImportMeta {
   readonly env: ImportMetaEnv;
