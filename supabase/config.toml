@@ -1,0 +1,6 @@
+project_id = "patyczaki-wspinaczka"
+
+[functions.submit-result]
+# Gra używa publicznego klucza (publishable/anon), który nie zawsze jest JWT.
+# Funkcja sama waliduje dane i odtwarza bieg, więc weryfikacja JWT nie jest tu potrzebna.
+verify_jwt = false
