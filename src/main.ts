@@ -121,9 +121,18 @@ interface OppPanel {
 }
 const oppPanels = new Map<string, OppPanel>();
 
+/** Phone portrait: only my own wall; the others are shown as ranking capsules. */
+const PHONE = window.matchMedia('(max-width: 640px)');
+
 /** Tworzy/usuwa ściany przeciwników (1–5) i układa je w siatce. */
 function syncOppPanels(ids: string[], standings = false) {
   const grid = $('opp-grid');
+  const phone = PHONE.matches;
+  if (phone) {
+    ids = [];
+    standings = false;
+  }
+  $('game').classList.toggle('phone', phone);
   for (const [id, p] of oppPanels) {
     if (!ids.includes(id)) {
       p.view.destroy();
@@ -183,7 +192,9 @@ function layoutHud() {
   let bottom = false;
   let left = '50%';
   let space = 0;
-  if (game.classList.contains('multi')) {
+  if (game.classList.contains('phone')) {
+    width = window.innerWidth - 16;
+  } else if (game.classList.contains('multi')) {
     const a = $('opp-area').getBoundingClientRect();
     width = Math.min(328, Math.floor(a.width - 16));
     left = `${Math.round(a.left + a.width / 2)}px`;
@@ -410,6 +421,7 @@ class Room {
     );
     this.lastSent = { hold: -1, fbAt: -1, at: 0 };
     this.raceRowsKey = '';
+    this.capsKey = '';
     this.me = { ...this.me, ready: null };
     this.t.setMeta(this.me);
     meView.reset();
@@ -673,6 +685,10 @@ class Room {
       setText('hud-op-name', 'Opponent');
       setText('hud-op-sub', 'left');
     }
+    if (PHONE.matches) {
+      this.updateCapsules(disp);
+      return;
+    }
     // paski wyścigu: wszyscy uczestnicy w kolejności miejsc startowych
     const board = document.getElementById('standings');
     const race = board ?? $('hud-race');
@@ -712,6 +728,69 @@ class Room {
         if (row && row.style.order !== String(i)) row.style.order = String(i);
       });
     }
+  }
+
+  private capsKey = '';
+  private capRank = new Map<string, number>();
+
+  /** Phone: one capsule per player, sliding into place as the lead changes. */
+  private updateCapsules(disp: SimState) {
+    const box = $('hud-caps');
+    const ids = this.participants;
+    const n = ids.length;
+    const cols = n <= 2 ? n : 2;
+    const key = `${ids.join()}|${cols}`;
+    if (this.capsKey !== key) {
+      this.capsKey = key;
+      this.capRank.clear();
+      box.style.setProperty('--cols', String(cols));
+      const rows = Math.ceil(n / cols);
+      box.style.setProperty('--rows', String(rows));
+      // the "waiting" banner sits just above the capsules
+      $('game').style.setProperty('--caps-h', `${rows * 30 + (rows - 1) * 5}px`);
+      box.innerHTML = ids
+        .map((id) => {
+          const nick = id === this.me.id ? this.me.nick : this.opps.get(id)?.nick ?? '?';
+          return `<div class="cap${id === this.me.id ? ' mine' : ''}" data-cap="${esc(id)}" style="background:${color(this.slotOf(id))}"><b class="pos"></b><span class="cn">${esc(nick)}</span><span class="cm"></span></div>`;
+        })
+        .join('');
+    }
+    const info = ids.map((id) => {
+      if (id === this.me.id) return { id, hold: disp.hold, ms: this.myMs, left: false };
+      const o = this.opps.get(id);
+      return { id, hold: o?.hold ?? 0, ms: o?.ms ?? null, left: !!o?.left };
+    });
+    // finished first (by time), then by height; ties keep the previous order so capsules don't flicker
+    const prev = (id: string) => this.capRank.get(id) ?? ids.indexOf(id);
+    info.sort(
+      (a, b) =>
+        Number(a.left) - Number(b.left) ||
+        (a.ms ?? Infinity) - (b.ms ?? Infinity) ||
+        b.hold - a.hold ||
+        prev(a.id) - prev(b.id),
+    );
+    info.forEach((p, i) => {
+      const el = box.querySelector<HTMLElement>(`[data-cap="${CSS.escape(p.id)}"]`);
+      if (!el) return;
+      const old = this.capRank.get(p.id);
+      if (old !== i) {
+        this.capRank.set(p.id, i);
+        el.style.setProperty('--c', String(i % cols));
+        el.style.setProperty('--r', String(Math.floor(i / cols)));
+        el.classList.toggle('lead', i === 0);
+        if (old !== undefined && i < old) {
+          el.classList.remove('up');
+          void el.offsetWidth; // restart the animation
+          el.classList.add('up');
+        }
+        el.querySelector('.pos')!.textContent = String(i + 1);
+      }
+      const txt = p.left ? 'left' : p.ms !== null ? `${secs(p.ms)} s` : `${p.hold} m`;
+      const cm = el.querySelector<HTMLElement>('.cm')!;
+      if (cm.textContent !== txt) cm.textContent = txt;
+      el.classList.toggle('done', p.ms !== null);
+      el.classList.toggle('gone', p.left);
+    });
   }
 
   // ---------- nakładki ----------
