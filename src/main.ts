@@ -122,7 +122,7 @@ interface OppPanel {
 const oppPanels = new Map<string, OppPanel>();
 
 /** Tworzy/usuwa ściany przeciwników (1–5) i układa je w siatce. */
-function syncOppPanels(ids: string[]) {
+function syncOppPanels(ids: string[], standings = false) {
   const grid = $('opp-grid');
   for (const [id, p] of oppPanels) {
     if (!ids.includes(id)) {
@@ -148,10 +148,26 @@ function syncOppPanels(ids: string[]) {
     grid.append(p.el); // kolejność jak w ids
   }
   const n = ids.length;
-  const cols = n <= 1 ? 1 : n <= 4 ? 2 : 3;
+  // 1 opponent: one wall; 2–3: two columns; 4–5: three columns
+  const cols = n <= 1 ? 1 : n <= 3 ? 2 : 3;
   const key = `repeat(${cols}, minmax(0, 1fr))`;
   if (grid.style.gridTemplateColumns !== key) grid.style.gridTemplateColumns = key;
-  $('game').classList.toggle('multi', n >= 2);
+  // the live standings fill the free grid cells (3 opponents: 1 cell, 4: 2 cells, 5: 1 cell)
+  let st = document.getElementById('standings');
+  if (standings) {
+    if (!st) {
+      st = document.createElement('div');
+      st.id = 'standings';
+      st.className = 'standings';
+    }
+    const rows = Math.ceil((n + 1) / cols);
+    st.style.gridColumn = `span ${cols * rows - n}`;
+    grid.append(st);
+  } else st?.remove();
+  const game = $('game');
+  game.classList.toggle('multi', n >= 2);
+  game.classList.toggle('many-opp', n >= 3);
+  game.classList.toggle('has-standings', standings);
 }
 
 let hudLayoutKey = '';
@@ -596,7 +612,7 @@ class Room {
     );
 
     const shown = this.shownOpps();
-    syncOppPanels(shown.length ? shown : ['__empty']);
+    syncOppPanels(shown.length ? shown : ['__empty'], inMatch && shown.length >= 3);
     for (const [id, panel] of oppPanels) {
       const o = this.opps.get(id);
       const pl = this.players.find((p) => p.id === id);
@@ -658,23 +674,43 @@ class Room {
       setText('hud-op-sub', 'left');
     }
     // paski wyścigu: wszyscy uczestnicy w kolejności miejsc startowych
-    const race = $('hud-race');
+    const board = document.getElementById('standings');
+    const race = board ?? $('hud-race');
     const ids = this.participants;
-    if (this.raceRowsKey !== ids.join()) {
-      this.raceRowsKey = ids.join();
-      race.innerHTML = ids
-        .map((id) => {
-          const nick = id === this.me.id ? this.me.nick : this.opps.get(id)?.nick ?? '?';
-          return `<span class="rn">${esc(nick)}</span><div class="track"><i data-bar="${esc(id)}" style="background:${color(this.slotOf(id))}"></i></div><span data-m="${esc(id)}">0 m</span>`;
-        })
-        .join('');
+    const rowsKey = `${ids.join()}|${board ? 'b' : 'h'}`;
+    if (this.raceRowsKey !== rowsKey) {
+      this.raceRowsKey = rowsKey;
+      race.innerHTML = board
+        ? `<div class="st-title">LIVE STANDINGS</div>` +
+          ids
+            .map((id) => {
+              const nick = id === this.me.id ? this.me.nick : this.opps.get(id)?.nick ?? '?';
+              const c = color(this.slotOf(id));
+              return `<div class="st-row${id === this.me.id ? ' mine' : ''}" data-row="${esc(id)}"><span class="rn"><span class="dot" style="background:${c}"></span>${esc(nick)}</span><span data-m="${esc(id)}">0 m</span><div class="track"><i data-bar="${esc(id)}" style="background:${c}"></i></div></div>`;
+            })
+            .join('')
+        : ids
+            .map((id) => {
+              const nick = id === this.me.id ? this.me.nick : this.opps.get(id)?.nick ?? '?';
+              return `<span class="rn">${esc(nick)}</span><div class="track"><i data-bar="${esc(id)}" style="background:${color(this.slotOf(id))}"></i></div><span data-m="${esc(id)}">0 m</span>`;
+            })
+            .join('');
     }
+    const heights = new Map<string, number>();
     for (const id of ids) {
       const h = id === this.me.id ? disp.hold : this.opps.get(id)?.hold ?? 0;
+      heights.set(id, h);
       const bar = race.querySelector<HTMLElement>(`[data-bar="${CSS.escape(id)}"]`);
       const m = race.querySelector<HTMLElement>(`[data-m="${CSS.escape(id)}"]`);
       if (bar) bar.style.width = `${(h / CFG.holds) * 100}%`;
       if (m && m.textContent !== `${h} m`) m.textContent = `${h} m`;
+    }
+    if (board) {
+      // leaders first, without moving DOM nodes (CSS order)
+      [...ids].sort((a, b) => heights.get(b)! - heights.get(a)!).forEach((id, i) => {
+        const row = board.querySelector<HTMLElement>(`[data-row="${CSS.escape(id)}"]`);
+        if (row && row.style.order !== String(i)) row.style.order = String(i);
+      });
     }
   }
 
