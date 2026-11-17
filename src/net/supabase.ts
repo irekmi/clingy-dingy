@@ -74,6 +74,27 @@ export class SupabaseTransport implements RoomTransport {
   }
 }
 
+export interface SubmitReply {
+  valid: boolean;
+  verifiedMs: number | null;
+  /** wynik wszedł do rankingu ogólnego */
+  ranked?: boolean;
+  /** serwer uznał bieg za podejrzany (np. zbyt równe trafienia) */
+  suspect?: boolean;
+  flags?: string[];
+}
+
+/** Zakłada mecz na serwerze; null = nie udało się (wynik takiego meczu nie trafi do rankingu). */
+export async function createMatch(room: string, players: string[]): Promise<string | null> {
+  try {
+    const { data, error } = await getClient().functions.invoke('create-match', { body: { room, players } });
+    if (error) throw error;
+    return typeof data?.matchId === 'string' ? data.matchId : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface SubmitBody {
   matchId: string;
   room: string;
@@ -84,7 +105,7 @@ export interface SubmitBody {
 }
 
 /** Wysyła wynik do Edge Function, która odtwarza bieg i zapisuje zweryfikowany czas w bazie. */
-export async function submitResult(body: SubmitBody): Promise<{ valid: boolean; verifiedMs: number | null; ranked?: boolean }> {
+export async function submitResult(body: SubmitBody): Promise<SubmitReply> {
   const { data, error } = await getClient().functions.invoke('submit-result', { body });
   if (error) throw error;
   return data;

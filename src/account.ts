@@ -16,9 +16,16 @@ export interface LeaderRow {
 
 let current: Account | null = null;
 const listeners = new Set<(a: Account | null) => void>();
+const recoveryListeners = new Set<() => void>();
 
 export const accountsEnabled = supabaseConfigured;
 export const getAccount = () => current;
+
+/** Użytkownik kliknął link „zresetuj hasło” z e-maila – trzeba pokazać formularz nowego hasła. */
+export function onPasswordRecovery(cb: () => void) {
+  recoveryListeners.add(cb);
+  return () => recoveryListeners.delete(cb);
+}
 
 export function onAccountChange(cb: (a: Account | null) => void) {
   listeners.add(cb);
@@ -38,7 +45,8 @@ function emit(a: Account | null) {
 /** Uruchamia nasłuch sesji (także po kliknięciu linku z e-maila). */
 export function initAccounts() {
   if (!accountsEnabled) return;
-  getClient().auth.onAuthStateChange((_event, session) => {
+  getClient().auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') recoveryListeners.forEach((cb) => cb());
     const user = session?.user;
     if (!user) {
       if (current) emit(null);
@@ -58,6 +66,8 @@ const PL_ERRORS: [RegExp, string][] = [
   [/already registered|already been registered/i, 'Ten e-mail ma już konto – zaloguj się.'],
   [/password should be at least/i, 'Hasło musi mieć co najmniej 6 znaków.'],
   [/rate limit|too many/i, 'Za dużo prób – spróbuj za kilka minut.'],
+  [/duplicate key|profiles_nick_unique|23505/i, 'Ten nick jest już zajęty.'],
+  [/new password should be different/i, 'Nowe hasło musi się różnić od poprzedniego.'],
   [/invalid email|unable to validate email/i, 'Nieprawidłowy adres e-mail.'],
 ];
 export function plError(e: unknown): string {
@@ -107,4 +117,48 @@ export async function fetchMyBest(userId: string): Promise<{ best: number | null
   const top = await fetchLeaderboard(100).catch(() => [] as LeaderRow[]);
   const idx = top.findIndex((r) => r.user_id === userId);
   return { best, place: idx >= 0 ? idx + 1 : null };
+}
+
+/** Wysyła e-mail z linkiem do ustawienia nowego hasła. */
+export async function resetPassword(email: string) {
+  const { error } = await getClient().auth.resetPasswordForEmail(email, {
+    redirectTo: `${location.origin}${location.pathname}`,
+  });
+  if (error) throw error;
+}
+
+export async function updatePassword(password: string) {
+  const { error } = await getClient().auth.updateUser({ password });
+  if (error) throw error;
+}
+
+/** Zmiana nicku w profilu (unikalny, bez rozróżniania wielkości liter). */
+export async function changeNick(nick: string) {
+  if (!current) throw new Error('not signed in');
+  const { error } = await getClient().from('profiles').update({ nick }).eq('id', current.userId);
+  if (error) throw error;
+  emit({ ...current, nick });
+}
+
+export interface HistoryRow {
+  created_at: string;
+  match_id: string;
+  room_code: string;
+  verified_ms: number | null;
+  valid: boolean;
+  suspect: boolean;
+  perfects: number;
+  won: boolean;
+  players: number;
+}
+
+/** Ostatnie rundy zalogowanego gracza (widok my_results pokazuje tylko jego wiersze). */
+export async function fetchHistory(limit = 30): Promise<HistoryRow[]> {
+  const { data, error } = await getClient()
+    .from('my_results')
+    .select('created_at,match_id,room_code,verified_ms,valid,suspect,perfects,won,players')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as HistoryRow[];
 }

@@ -17,22 +17,28 @@ import {
 } from '@sim';
 import {
   accountsEnabled,
+  changeNick,
+  fetchHistory,
   fetchLeaderboard,
   fetchMyBest,
   getAccount,
   initAccounts,
   onAccountChange,
+  onPasswordRecovery,
   plError,
+  resetPassword,
   signIn,
   signOut,
   signUp,
+  updatePassword,
+  type HistoryRow,
   type LeaderRow,
 } from './account';
 import { setAdsVisible } from './ads';
 import { ClimbView, fmtTime, MAX_PLAYERS, PLAYER_COLORS } from './game/render';
 import { footerLinksHtml, infoHtml, isInfoPage } from './pages';
 import { LocalTransport } from './net/localTransport';
-import { SupabaseTransport, submitResult, supabaseConfigured } from './net/supabase';
+import { SupabaseTransport, createMatch, submitResult, supabaseConfigured } from './net/supabase';
 import type { PlayerMeta, RoomTransport } from './net/transport';
 import { cleanNick, esc, randomId, roomCode, ROOM_CODE_RE } from './util';
 
@@ -232,7 +238,7 @@ class Room {
   private opps = new Map<string, OppState>();
   private session = new Map<string, SessionRow>();
   private usedTokens = new Set<string>();
-  private verify: 'off' | 'pending' | 'ok' | 'bad' | 'error' = 'off';
+  private verify: 'off' | 'pending' | 'ok' | 'bad' | 'suspect' | 'error' = 'off';
   private myRecord: { best: number | null; place: number | null } | null = null;
   private lastSent = { hold: -1, fbAt: -1, at: 0 };
   private connected = false;
@@ -338,9 +344,14 @@ class Room {
     const a = this.active();
     if (a.length < 2 || !a.every((p) => p.ready && !this.usedTokens.has(p.ready))) return;
     a.forEach((p) => this.usedTokens.add(p.ready!));
-    const payload = { m: randomId(), p: a.map((p) => p.id) };
-    this.t.send('start', payload);
-    this.onStart(payload);
+    const ids = a.map((p) => p.id);
+    // online: identyfikator meczu nadaje serwer (inaczej wynik nie trafi do rankingu); lokalnie losowy
+    void (async () => {
+      const m = (USE_SUPABASE ? await createMatch(this.code, ids) : null) ?? randomId();
+      const payload = { m, p: ids };
+      this.t.send('start', payload);
+      this.onStart(payload);
+    })();
   }
 
   // ---------- zdarzenia sieciowe ----------
@@ -471,7 +482,7 @@ class Room {
         inputs: this.inputs,
       })
         .then(async (r) => {
-          this.verify = r.valid ? 'ok' : 'bad';
+          this.verify = !r.valid ? 'bad' : r.suspect ? 'suspect' : 'ok';
           const acc = getAccount();
           if (r.ranked && acc) this.myRecord = await fetchMyBest(acc.userId).catch(() => null);
         })
@@ -694,6 +705,8 @@ class Room {
         return '<span class="verified">zweryfikowany ✓</span>';
       case 'bad':
         return '<span class="rejected">odrzucony przez serwer ✖</span>';
+      case 'suspect':
+        return '<span class="rejected">do weryfikacji – poza rankingiem</span>';
       case 'error':
         return '<span class="rejected">nie udało się zapisać wyniku</span>';
       default:
@@ -858,22 +871,91 @@ class Room {
 
 // ---------- menu, konto, ranking ----------
 
-type MenuView = 'main' | 'login' | 'register' | 'check' | 'ranking';
+type MenuView = 'main' | 'login' | 'register' | 'check' | 'ranking' | 'account' | 'forgot' | 'recovery';
 const menu = {
   view: 'main' as MenuView,
   busy: false,
   error: '',
+  note: '',
   email: '',
   nick: '',
   ranking: null as LeaderRow[] | null,
   rankingError: '',
   myBest: null as { best: number | null; place: number | null } | null,
+  history: null as HistoryRow[] | null,
+  historyError: '',
 };
+
+/** Pasek u góry menu: logowanie i ranking zawsze na widoku, dużymi przyciskami. */
+function topbarHtml(): string {
+  if (!accountsEnabled) return '';
+  const acc = getAccount();
+  const how = '<a class="btn ghost small" href="#/info/jak-grac">Jak grać</a>';
+  if (acc) {
+    return `<nav class="topbar" aria-label="Konto">
+      <span class="who">Cześć, <b>${esc(acc.nick)}</b></span>
+      <button class="btn blue small" data-action="view-account">Moje konto</button>
+      <button class="btn orange small" data-action="view-ranking">Ranking</button>${how}</nav>`;
+  }
+  return `<nav class="topbar" aria-label="Konto">
+    <button class="btn blue small" data-action="view-login">Zaloguj się</button>
+    <button class="btn orange small" data-action="view-register">Załóż konto</button>
+    <button class="btn ghost small" data-action="view-ranking">Ranking</button>${how}</nav>`;
+}
+
+function dateStr(iso: string) {
+  return new Date(iso).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function accountHtml(): string {
+  const acc = getAccount();
+  if (!acc) return '';
+  const rows = menu.history;
+  const valid = (rows ?? []).filter((r) => r.valid && r.verified_ms !== null);
+  const ranked = valid.filter((r) => !r.suspect);
+  const best = ranked.length ? Math.min(...ranked.map((r) => r.verified_ms!)) : null;
+  const wins = (rows ?? []).filter((r) => r.won).length;
+  const stats = rows
+    ? `<div class="stats">
+        <div><b>${valid.length}</b><small>rund</small></div>
+        <div><b>${wins}</b><small>wygranych</small></div>
+        <div><b>${best === null ? '—' : secs(best)}</b><small>rekord (s)</small></div>
+        <div><b>${menu.myBest?.place ? '#' + menu.myBest.place : '—'}</b><small>miejsce</small></div>
+      </div>`
+    : '';
+  const table = menu.historyError
+    ? `<p class="empty err">${esc(menu.historyError)}</p>`
+    : rows === null
+      ? '<p class="empty">Wczytywanie…</p>'
+      : rows.length === 0
+        ? '<p class="empty">Nie masz jeszcze rozegranych rund online. Zagraj, a pojawią się tutaj.</p>'
+        : `<table>${rows
+            .map((r) => {
+              const status = !r.valid ? 'odrzucony' : r.suspect ? 'do weryfikacji' : r.won ? 'wygrana' : r.players > 1 ? `z ${r.players} graczy` : '';
+              return `<tr class="${r.won ? 'gold' : ''}"><td class="s">${dateStr(r.created_at)}</td><td>${esc(r.room_code)}</td>
+                <td class="s">${status}</td><td class="t">${r.valid && r.verified_ms !== null ? secs(r.verified_ms) + ' s' : '—'}</td></tr>`;
+            })
+            .join('')}</table>`;
+  const err = menu.error ? `<p class="msg err">${esc(menu.error)}</p>` : '';
+  const note = menu.note ? `<p class="msg ok">${esc(menu.note)}</p>` : '';
+  return `<div class="form wide2" role="region" aria-label="Moje konto">
+      <h2>Moje konto</h2>
+      <p class="msg">${esc(acc.email)}</p>
+      ${stats}
+      <label>Nick (widoczny w rankingu)
+        <span class="inline"><input id="f-nick" maxlength="16" value="${esc(menu.nick || acc.nick)}" data-enter="save-nick"><button class="btn blue small" data-action="save-nick" ${menu.busy ? 'disabled' : ''}>Zapisz</button></span>
+      </label>
+      ${err}${note}
+      <div class="tbl"><h2>OSTATNIE RUNDY</h2>${table}</div>
+      <div class="row2"><button class="linkbtn" data-action="send-reset">Zmień hasło (wyślij link na e-mail)</button><button class="linkbtn" data-action="logout">Wyloguj</button><button class="linkbtn" data-action="view-main">Wróć</button></div>
+    </div>`;
+}
 
 function menuHtml(): string {
   const acc = getAccount();
-  const wrap = (inner: string) => `<div class="dim"></div><div class="studio">${belka('wspinaczka na czas · do 6 graczy')}${inner}</div>`;
+  const wrap = (inner: string) => `<div class="dim"></div><div class="studio">${topbarHtml()}${belka('wspinaczka na czas · do 6 graczy')}${inner}</div>`;
   const err = menu.error ? `<p class="msg err">${esc(menu.error)}</p>` : '';
+  const note = menu.note ? `<p class="msg ok">${esc(menu.note)}</p>` : '';
   const dis = menu.busy ? 'disabled' : '';
 
   if (menu.view === 'login') {
@@ -881,9 +963,27 @@ function menuHtml(): string {
       <h2>Zaloguj się</h2>
       <label>E-mail<input id="f-email" type="email" autocomplete="email" value="${esc(menu.email)}" data-enter="do-login"></label>
       <label>Hasło<input id="f-pass" type="password" autocomplete="current-password" data-enter="do-login"></label>
-      ${err}
+      ${err}${note}
       <button class="btn blue" data-action="do-login" ${dis}>${menu.busy ? 'Logowanie…' : 'Zaloguj'}</button>
-      <div class="row2"><button class="linkbtn" data-action="view-register">Nie masz konta? Załóż</button><button class="linkbtn" data-action="view-main">Wróć</button></div>
+      <div class="row2"><button class="linkbtn" data-action="view-register">Nie masz konta? Załóż</button><button class="linkbtn" data-action="view-forgot">Zapomniałem hasła</button><button class="linkbtn" data-action="view-main">Wróć</button></div>
+    </div>`);
+  }
+  if (menu.view === 'forgot') {
+    return wrap(`<div class="form" role="form" aria-label="Reset hasła">
+      <h2>Reset hasła</h2>
+      <p class="msg">Podaj e-mail konta – wyślemy link do ustawienia nowego hasła.</p>
+      <label>E-mail<input id="f-email" type="email" autocomplete="email" value="${esc(menu.email)}" data-enter="do-forgot"></label>
+      ${err}${note}
+      <button class="btn blue" data-action="do-forgot" ${dis}>${menu.busy ? 'Wysyłanie…' : 'Wyślij link'}</button>
+      <div class="row2"><button class="linkbtn" data-action="view-login">Wróć do logowania</button></div>
+    </div>`);
+  }
+  if (menu.view === 'recovery') {
+    return wrap(`<div class="form" role="form" aria-label="Nowe hasło">
+      <h2>Ustaw nowe hasło</h2>
+      <label>Nowe hasło (min. 6 znaków)<input id="f-pass" type="password" autocomplete="new-password" data-enter="do-recovery"></label>
+      ${err}
+      <button class="btn blue" data-action="do-recovery" ${dis}>${menu.busy ? 'Zapisywanie…' : 'Zapisz hasło'}</button>
     </div>`);
   }
   if (menu.view === 'register') {
@@ -904,6 +1004,9 @@ function menuHtml(): string {
       <p class="msg">Nie widzisz wiadomości? Zajrzyj do spamu.</p>
       <button class="btn ghost" data-action="view-main">Wróć do menu</button>
     </div>`);
+  }
+  if (menu.view === 'account') {
+    return wrap(acc ? accountHtml() : '<div class="form"><p class="msg">Zaloguj się, żeby zobaczyć swoje konto.</p><button class="btn blue" data-action="view-login">Zaloguj się</button></div>');
   }
   if (menu.view === 'ranking') {
     const rows = menu.ranking;
@@ -928,15 +1031,11 @@ function menuHtml(): string {
       <button class="btn ghost" data-action="view-main">Wróć</button>`);
   }
 
-  const acctBar = !accountsEnabled
-    ? ''
-    : acc
-      ? `<div class="acct-bar">Zalogowano jako <b>${esc(acc.nick)}</b><button class="linkbtn" data-action="view-ranking">Ranking</button><button class="linkbtn" data-action="logout">Wyloguj</button></div>`
-      : `<div class="acct-bar">Grasz jako gość<button class="linkbtn" data-action="view-login">Zaloguj się</button><button class="linkbtn" data-action="view-register">Załóż konto</button><button class="linkbtn" data-action="view-ranking">Ranking</button></div>`;
   const nickField = acc
     ? `<div class="row"><span class="name">${esc(acc.nick)}</span><span class="acct">KONTO ✓</span></div><span class="sub">Twoje czasy trafiają do rankingu.</span>`
     : `<label>Twój nick<input id="nick" maxlength="16" value="${esc(getNick())}" autocomplete="off" spellcheck="false"></label>`;
   return wrap(`
+    ${note ? `<div class="form">${note}</div>` : ''}
     <section class="cards" aria-label="Gracze">
       <div class="pcard slot" style="--c:${color(0)}"><div class="lbl"><span>TY</span></div>${nickField}</div>
       <div class="vs">VS</div>
@@ -951,7 +1050,7 @@ function menuHtml(): string {
         <input id="join-code" class="code-in" placeholder="KOD" maxlength="8" autocomplete="off" spellcheck="false" data-enter="join">
         <button class="btn orange" data-action="join">Dołącz</button>
       </div>
-      ${acctBar}
+      ${!acc && accountsEnabled ? '<p class="hint">Grasz jako gość – <button class="linkbtn big" data-action="view-login">zaloguj się</button>, żeby Twoje czasy trafiały do rankingu.</p>' : ''}
       <p class="hint">Pierścień na <span class="blue">niebieskim</span> chwycie → gdy się zamknie, wciśnij ← / → (A / D) → liczy się Twój czas</p>
       <p class="hint small">${esc(MODE_NOTE || 'Online: Supabase Realtime ✓')}</p>
       ${footerLinksHtml()}
@@ -986,8 +1085,27 @@ async function openRanking() {
   if (menu.view === 'ranking') renderMenu();
 }
 
+async function openAccount() {
+  menu.view = 'account';
+  menu.history = null;
+  menu.historyError = '';
+  menu.nick = '';
+  menu.error = '';
+  menu.note = '';
+  renderMenu();
+  const acc = getAccount();
+  if (!acc) return;
+  try {
+    [menu.history, menu.myBest] = await Promise.all([fetchHistory(30), fetchMyBest(acc.userId)]);
+  } catch (e) {
+    menu.historyError = plError(e);
+  }
+  if (menu.view === 'account') renderMenu();
+}
+
 async function menuAction(action: string) {
   menu.error = '';
+  if (action !== 'view-main') menu.note = '';
   switch (action) {
     case 'create':
       readNick();
@@ -1008,6 +1126,7 @@ async function menuAction(action: string) {
     case 'view-main':
     case 'view-login':
     case 'view-register':
+    case 'view-forgot':
       menu.email = val('f-email') || menu.email;
       menu.view = action.slice(5) as MenuView;
       renderMenu();
@@ -1015,8 +1134,12 @@ async function menuAction(action: string) {
     case 'view-ranking':
       void openRanking();
       return;
+    case 'view-account':
+      void openAccount();
+      return;
     case 'logout':
       await signOut();
+      menu.view = 'main';
       renderMenu();
       return;
     case 'do-login': {
@@ -1060,6 +1183,78 @@ async function menuAction(action: string) {
       renderMenu();
       return;
     }
+    case 'do-forgot': {
+      menu.email = val('f-email').trim();
+      if (!menu.email) {
+        menu.error = 'Podaj adres e-mail.';
+        renderMenu();
+        return;
+      }
+      menu.busy = true;
+      renderMenu();
+      try {
+        await resetPassword(menu.email);
+        menu.note = `Jeśli konto ${menu.email} istnieje, wysłaliśmy na nie link do zmiany hasła. Sprawdź też spam.`;
+      } catch (e) {
+        menu.error = plError(e);
+      }
+      menu.busy = false;
+      renderMenu();
+      return;
+    }
+    case 'do-recovery': {
+      const pass = val('f-pass');
+      if (pass.length < 6) {
+        menu.error = 'Hasło musi mieć co najmniej 6 znaków.';
+        renderMenu();
+        return;
+      }
+      menu.busy = true;
+      renderMenu();
+      try {
+        await updatePassword(pass);
+        menu.view = 'main';
+        menu.note = 'Hasło zostało zmienione. Jesteś zalogowany.';
+      } catch (e) {
+        menu.error = plError(e);
+      }
+      menu.busy = false;
+      renderMenu();
+      return;
+    }
+    case 'save-nick': {
+      const n = cleanNick(val('f-nick'));
+      menu.nick = n;
+      if (!n) {
+        menu.error = 'Nick nie może być pusty.';
+        renderMenu();
+        return;
+      }
+      menu.busy = true;
+      renderMenu();
+      try {
+        await changeNick(n);
+        menu.note = 'Nick zapisany.';
+        menu.nick = '';
+      } catch (e) {
+        menu.error = plError(e);
+      }
+      menu.busy = false;
+      renderMenu();
+      return;
+    }
+    case 'send-reset': {
+      const acc = getAccount();
+      if (!acc) return;
+      try {
+        await resetPassword(acc.email);
+        menu.note = `Wysłaliśmy link do zmiany hasła na ${acc.email}.`;
+      } catch (e) {
+        menu.error = plError(e);
+      }
+      renderMenu();
+      return;
+    }
   }
 }
 
@@ -1081,7 +1276,10 @@ function route() {
     $('overlay').innerHTML = infoHtml(location.hash.slice(7));
     $('overlay').querySelector('.studio')?.scrollTo(0, 0);
   } else {
-    if (location.hash.includes('access_token') || location.hash.includes('error_description')) return; // obsłuży Supabase Auth
+    if (location.hash.includes('access_token') || location.hash.includes('error_description')) {
+      if (!$('overlay').innerHTML) renderMenu(); // tokeny obsłuży Supabase Auth
+      return;
+    }
     room?.destroy();
     room = null;
     menu.view = 'main';
@@ -1129,7 +1327,12 @@ overlay.addEventListener('change', (e) => {
 });
 
 onAccountChange(() => {
-  if (!room && menu.view === 'main') renderMenu();
+  if (!room && (menu.view === 'main' || menu.view === 'account')) renderMenu();
+});
+onPasswordRecovery(() => {
+  menu.view = 'recovery';
+  menu.error = '';
+  if (!room) renderMenu();
 });
 initAccounts();
 window.addEventListener('hashchange', route);

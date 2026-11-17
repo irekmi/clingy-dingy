@@ -15,3 +15,7 @@ enable_confirmations = true
 # Gra używa publicznego klucza (publishable/anon), który nie zawsze jest JWT.
 # Funkcja sama waliduje dane i odtwarza bieg; token zalogowanego gracza sprawdza sama.
 verify_jwt = false
+
+[functions.create-match]
+# Zakłada mecz po stronie serwera; waliduje dane i ogranicza częstotliwość sam.
+verify_jwt = false

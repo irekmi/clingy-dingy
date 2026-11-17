@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   CFG,
+  analyzeRun,
+  botFlags,
   initState,
   makeRoute,
   press,
@@ -103,5 +105,46 @@ describe('symulacja', () => {
     expect(() => replay(route, [[100.5, 0]])).toThrow();
     expect(() => replay(route, [[100, 2]])).toThrow();
     expect(() => replay(route, 'nope')).toThrow();
+  });
+});
+
+describe('analiza biegu i wykrywanie botów', () => {
+  it('analyzeRun daje ten sam stan co replay i odchyłki udanych trafień', () => {
+    const route = routeFor('analiza');
+    const { s, inputs } = perfectRun(route);
+    const a = analyzeRun(route, inputs);
+    expect(a.state).toEqual(s);
+    expect(a.offsets).toHaveLength(CFG.holds);
+    expect(a.offsets.every((d) => d === 0)).toBe(true);
+  });
+
+  it('idealny, maszynowy bieg jest podejrzany', () => {
+    const { inputs } = perfectRun(routeFor('bot'));
+    const flags = botFlags(analyzeRun(routeFor('bot'), inputs).offsets);
+    expect(flags).toContain('robotic_precision');
+    expect(flags).toContain('frame_perfect');
+  });
+
+  it('bieg z ludzkim rozrzutem (ok. 25 ms) nie jest podejrzany', () => {
+    const r = rng(11);
+    const gauss = () => (r() + r() + r() + r() - 2) * 38; // ok. 25 ms odchylenia
+    let flagged = 0;
+    for (let g = 0; g < 30; g++) {
+      const route = routeFor('human' + g);
+      let s = initState();
+      const inputs: InputEvent[] = [];
+      while (s.finishedAt === null && inputs.length < 200) {
+        const t = Math.max(s.cycleStart, Math.round(s.cycleStart + s.period + gauss()));
+        const side = route.sides[s.hold + 1];
+        inputs.push([t, side]);
+        s = press(s, route, t, side);
+      }
+      if (botFlags(analyzeRun(route, inputs).offsets).length) flagged++;
+    }
+    expect(flagged).toBe(0);
+  });
+
+  it('krótki bieg nie jest oceniany', () => {
+    expect(botFlags([0, 0, 0])).toEqual([]);
   });
 });

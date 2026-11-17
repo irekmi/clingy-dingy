@@ -179,10 +179,17 @@ export function press(s0: SimState, route: Route, t: number, side: Side): SimSta
   };
 }
 
-/** Odtwarza cały bieg z logu wciśnięć. Rzuca błąd przy nieprawidłowym logu. */
-export function replay(route: Route, inputs: unknown): SimState {
+export interface RunAnalysis {
+  state: SimState;
+  /** odchyłka od idealnego momentu (ms) przy każdym udanym wejściu wyżej */
+  offsets: number[];
+}
+
+/** Odtwarza cały bieg z logu wciśnięć i zbiera odchyłki trafień. Rzuca błąd przy nieprawidłowym logu. */
+export function analyzeRun(route: Route, inputs: unknown): RunAnalysis {
   if (!Array.isArray(inputs) || inputs.length > CFG.maxInputs) throw new Error('bad inputs');
   let s = initState();
+  const offsets: number[] = [];
   let prev = 0;
   for (const ev of inputs) {
     if (!Array.isArray(ev) || ev.length !== 2) throw new Error('bad event');
@@ -190,8 +197,32 @@ export function replay(route: Route, inputs: unknown): SimState {
     if (typeof t !== 'number' || !Number.isInteger(t) || t < prev || t > 3_600_000) throw new Error('bad time');
     if (side !== 0 && side !== 1) throw new Error('bad side');
     prev = t;
+    const before = tick(s, t);
+    const dt = t - (before.cycleStart + before.period);
     s = press(s, route, t, side);
+    if (s.hold > before.hold) offsets.push(dt);
     if (s.finishedAt !== null) break;
   }
-  return s;
+  return { state: s, offsets };
+}
+
+/** Odtwarza cały bieg z logu wciśnięć. Rzuca błąd przy nieprawidłowym logu. */
+export function replay(route: Route, inputs: unknown): SimState {
+  return analyzeRun(route, inputs).state;
+}
+
+/**
+ * Wykrywanie botów: człowiek trafia z rozrzutem rzędu 15–30 ms, program z dokładnością do kilku ms.
+ * Zwraca listę flag; niepusta lista = wynik podejrzany (zapisany, ale poza rankingiem).
+ */
+export function botFlags(offsets: number[]): string[] {
+  const flags: string[] = [];
+  const n = offsets.length;
+  if (n < 15) return flags;
+  const mean = offsets.reduce((a, b) => a + b, 0) / n;
+  const std = Math.sqrt(offsets.reduce((a, b) => a + (b - mean) ** 2, 0) / n);
+  const frameExact = offsets.filter((d) => Math.abs(d) <= 2).length / n;
+  if (std < 7) flags.push('robotic_precision');
+  if (frameExact >= 0.9) flags.push('frame_perfect');
+  return flags;
 }

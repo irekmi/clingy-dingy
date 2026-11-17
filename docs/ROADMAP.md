@@ -24,13 +24,15 @@ Styl: płaska ilustracja wektorowa hali wspinaczkowej. Gra nazywa się **Clingy 
 
 ## Etap 2: konta i uczciwość
 - [x] Konta: Supabase Auth (e-mail + hasło z potwierdzeniem), profil z unikalnym nickiem, gość może grać bez konta (bez rankingu)
-- [ ] Historia gier gracza, zmiana nicku, reset hasła
-- [ ] **Mecz tworzony na serwerze**: Edge Function `create-match` zwraca `matchId` i zapisuje go w tabeli `matches`. Wynik da się wtedy zgłosić tylko do meczu, który faktycznie się odbył, i tylko raz.
-- [ ] **Strumieniowanie wciśnięć w trakcie biegu** (np. paczka co 0,5 s do serwera). Serwer porównuje swój zegar z deklarowanymi czasami, więc nie da się „wymyślić” idealnego logu po fakcie.
-- [ ] Wykrywanie botów: statystyka trafień (np. 100% perfekt przy ±5 ms przez wiele gier), rozkład odchyleń, ręczna moderacja
-- [x] Ranking ogólny (najlepszy czas każdego zalogowanego gracza) + ranking pokoju (najlepsze czasy i wygrane w serii rewanży)
+- [x] Historia gier gracza (widok ), zmiana nicku i reset hasła w widoku „Moje konto”; logowanie i ranking na stałym pasku u góry menu
+- [x] **Mecz tworzony na serwerze**: Edge Function  zapisuje mecz (tabela : pokój, uczestnicy, czas startu). Wynik da się zgłosić tylko do istniejącego meczu, tylko dla jego uczestników i tylko raz. Zgłoszenia ze starych klientów (bez meczu) są zapisywane z flagą  i nie liczą się do rankingu.
+- [x] **Kontrola czasu ściennego** (zamiast strumieniowania wciśnięć): serwer zna start meczu, więc odrzuca (flaga ) bieg szybszy niż realnie upłynęło od startu + odliczania. Nie da się „wymyślić” idealnego logu po fakcie.
+- [x] **Wykrywanie botów**: statystyka odchyłek trafień. Człowiek ma rozrzut ok. 15–30 ms, maszyna kilka ms. Flagi  i  oznaczają wynik jako podejrzany (zapisany do przeglądu, poza rankingiem). Ograniczenie: bot z dodanym losowym szumem może to ominąć, więc dojdzie ręczna moderacja.
+- [x] Ranking ogólny (najlepszy czas każdego zalogowanego gracza, bez wyników podejrzanych) + ranking pokoju (najlepsze czasy i wygrane w serii rewanży)
 - [x] Pokoje do 6 graczy: Twoja ściana po lewej, przeciwnicy w siatce, wyniki z miejscami
-- [ ] Rozstrzygnięcie zwycięzcy po stronie serwera (porównanie dwóch zweryfikowanych wyników)
+- [x] Zwycięzca rozstrzygany po stronie serwera: gdy wszyscy uczestnicy zgłoszą wyniki, serwer zapisuje  (liczone są tylko wyniki poprawne i niepodejrzane)
+- [ ] Panel moderatora: przegląd wyników z flagami (), odblokowanie lub usunięcie
+- [ ] Zmiana adresu e-mail i usuwanie konta przez gracza
 
 ## Etap 3: monetyzacja z reklam (Google AdSense)
 
