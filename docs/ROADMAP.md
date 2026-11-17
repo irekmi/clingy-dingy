@@ -10,6 +10,18 @@
 - [ ] Testy z prawdziwymi graczami, dostrojenie trudności (`CFG` w `sim.ts`)
 - [ ] Dźwięki: klik przy chwycie, metronom
 
+## Wygląd (w trakcie projektowania)
+Styl: płaska ilustracja wektorowa hali wspinaczkowej. Gra nazywa się **Clingy Dingy** (wcześniej robocza nazwa „Patyczaki”). Projekt jest na kanwie Design „Clingy Dingy – wygląd gry”.
+- [x] Scena: hala o zachodzie słońca (okna z górami, ciemna podłoga, materace)
+- [x] Wspinacz 2C „z detalami”: widok od tyłu, koszulka na ramiączkach, legginsy, buty wspinaczkowe, woreczek z magnezją. Dwie wersje kolorystyczne (Ty / przeciwnik), pozy: start, sięga, ześlizg, szczyt.
+- [x] Ściana, chwyty i pierścień rytmu: wariant 3A. Twoja trasa to chwyty jednego koloru, inne kolory to ozdoba. Na następnym chwycie zaciska się pierścień (biały → żółty → zielony na celu), a stronę podpowiada strzałka w kółku.
+- [x] HUD, timer i komunikaty: wariant 4B „pasek transmisji”. Jedna belka na środku u góry: gracze po bokach w swoich kolorach (imię, wysokość, combo), w środku Twój czas, pod spodem dwa paski wyścigu w górę. Komunikaty to duże komiksowe napisy z białym obrysem.
+- [x] Menu, lobby i wyniki: styl 5C „studio transmisji”. Wąska belka CLINGY DINGY (TOR 1 / TOR 2) mieści się między ścianami, niżej karty graczy z VS i pasek akcji. Lobby i ekran wyników w tym samym układzie.
+- [x] HUD 4B zwężony do szerokości przerwy między ścianami (~330 px), żeby nie zasłaniał torów.
+- [x] Wdrożenie: `src/game/render.ts` (scena, chwyty, pierścień, wspinacz z pozami, komiksowe komunikaty), HUD i ekrany 5C w `src/main.ts` + `src/style.css`. Font Nunito jest hostowany lokalnie (@fontsource).
+- [ ] Na wąskich ekranach (telefon) HUD przenosi się na dół – do przetestowania na prawdziwym telefonie
+- [ ] **Konfigurator postaci** (później, np. razem z kontami): fryzura, kolor skóry, koszulka, spodnie, buty, opaska. Sylwetka 2C jako baza, wybór zapisany w profilu gracza i wysyłany przeciwnikowi w Presence.
+
 ## Etap 2: konta i uczciwość
 - [ ] Supabase Auth (konto anonimowe → e-mail lub Google), stały nick, historia gier
 - [ ] **Mecz tworzony na serwerze**: Edge Function `create-match` zwraca `matchId` i zapisuje go w tabeli `matches`. Wynik da się wtedy zgłosić tylko do meczu, który faktycznie się odbył, i tylko raz.

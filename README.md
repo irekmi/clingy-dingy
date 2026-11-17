@@ -1,4 +1,4 @@
-# Patyczaki – wspinaczka 1 na 1
+# Clingy Dingy – wspinaczka 1 na 1
 
 Szybka przeglądarkowa gra dla dwóch osób. Ekran jest podzielony na pół: po lewej wspinasz się Ty, po prawej na żywo widzisz przeciwnika. Wygrywa ten, kto szybciej dotrze na szczyt według **swojego lokalnego timera**, więc lagi nie wpływają na wynik.
 

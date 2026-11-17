@@ -1,5 +1,5 @@
 {
-  "name": "patyczaki-wspinaczka",
+  "name": "clingy-dingy",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource/nunito": "^5.3.0",
     "@supabase/supabase-js": "^2.45.0"
   },
   "devDependencies": {
