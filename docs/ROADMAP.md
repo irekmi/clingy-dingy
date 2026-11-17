@@ -24,13 +24,13 @@ Styl: płaska ilustracja wektorowa hali wspinaczkowej. Gra nazywa się **Clingy 
 
 ## Etap 2: konta i uczciwość
 - [x] Konta: Supabase Auth (e-mail + hasło z potwierdzeniem), profil z unikalnym nickiem, gość może grać bez konta (bez rankingu)
-- [x] Historia gier gracza (widok ), zmiana nicku i reset hasła w widoku „Moje konto”; logowanie i ranking na stałym pasku u góry menu
-- [x] **Mecz tworzony na serwerze**: Edge Function  zapisuje mecz (tabela : pokój, uczestnicy, czas startu). Wynik da się zgłosić tylko do istniejącego meczu, tylko dla jego uczestników i tylko raz. Zgłoszenia ze starych klientów (bez meczu) są zapisywane z flagą  i nie liczą się do rankingu.
-- [x] **Kontrola czasu ściennego** (zamiast strumieniowania wciśnięć): serwer zna start meczu, więc odrzuca (flaga ) bieg szybszy niż realnie upłynęło od startu + odliczania. Nie da się „wymyślić” idealnego logu po fakcie.
-- [x] **Wykrywanie botów**: statystyka odchyłek trafień. Człowiek ma rozrzut ok. 15–30 ms, maszyna kilka ms. Flagi  i  oznaczają wynik jako podejrzany (zapisany do przeglądu, poza rankingiem). Ograniczenie: bot z dodanym losowym szumem może to ominąć, więc dojdzie ręczna moderacja.
+- [x] Historia gier gracza (widok `my_results`), zmiana nicku i reset hasła w widoku „Moje konto”; logowanie i ranking na stałym pasku u góry menu
+- [x] **Mecz tworzony na serwerze**: Edge Function `create-match` zapisuje mecz (tabela `matches`: pokój, uczestnicy, czas startu). Wynik da się zgłosić tylko do istniejącego meczu, tylko dla jego uczestników i tylko raz. Zgłoszenia ze starych klientów (bez meczu) są zapisywane z flagą `no_match` i nie liczą się do rankingu.
+- [x] **Kontrola czasu ściennego** (zamiast strumieniowania wciśnięć): serwer zna start meczu, więc oznacza (flaga `too_fast`) bieg szybszy niż realnie upłynęło od startu + odliczania. Nie da się „wymyślić” idealnego logu po fakcie.
+- [x] **Wykrywanie botów**: statystyka odchyłek trafień. Człowiek ma rozrzut ok. 15–30 ms, maszyna kilka ms. Flagi `robotic_precision` i `frame_perfect` oznaczają wynik jako podejrzany (zapisany do przeglądu, poza rankingiem). Ograniczenie: bot z dodanym losowym szumem może to ominąć, więc dojdzie ręczna moderacja.
 - [x] Ranking ogólny (najlepszy czas każdego zalogowanego gracza, bez wyników podejrzanych) + ranking pokoju (najlepsze czasy i wygrane w serii rewanży)
 - [x] Pokoje do 6 graczy: Twoja ściana po lewej, przeciwnicy w siatce, wyniki z miejscami
-- [x] Zwycięzca rozstrzygany po stronie serwera: gdy wszyscy uczestnicy zgłoszą wyniki, serwer zapisuje  (liczone są tylko wyniki poprawne i niepodejrzane)
+- [x] Zwycięzca rozstrzygany po stronie serwera: gdy wszyscy uczestnicy zgłoszą wyniki, serwer zapisuje `winner_player_id` (liczone są tylko wyniki poprawne i niepodejrzane)
 - [ ] Panel moderatora: przegląd wyników z flagami (), odblokowanie lub usunięcie
 - [ ] Zmiana adresu e-mail i usuwanie konta przez gracza
 
