@@ -110,11 +110,11 @@ const ROUTE_LINE = '#2f5d97';
 
 const FB_TEXT: Record<Feedback, string> = {
   none: '',
-  perfect: 'PERFEKT!',
+  perfect: 'PERFECT!',
   good: 'OK',
-  early: 'ZA WCZEŚNIE',
-  wrong: 'ZŁA RĘKA!',
-  miss: 'SPÓŹNIONE',
+  early: 'TOO EARLY',
+  wrong: 'WRONG HAND!',
+  miss: 'TOO LATE',
 };
 const FB_COLOR: Record<Feedback, string> = {
   none: '#ffffff',
@@ -124,6 +124,19 @@ const FB_COLOR: Record<Feedback, string> = {
   wrong: '#e5484d',
   miss: '#6b6e7a',
 };
+
+interface Part {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  g: number;
+  life: number;
+  max: number;
+  r: number;
+  color: string;
+  shape: 'dot' | 'star' | 'rect';
+}
 
 /** deterministyczny „los” dla ozdobnych chwytów */
 function rnd(seed: number, i: number, j: number): number {
@@ -384,6 +397,11 @@ export class ClimbView {
   private shakeUntil = 0;
   private bolts: CanvasPattern | null = null;
   private ro: ResizeObserver;
+  private parts: Part[] = [];
+  private lastStamp = -1e9;
+  private wasFinished = false;
+  /** chalk-dust motes drifting over the wall (screen space, 0..1) */
+  private motes = Array.from({ length: 16 }, (_, i) => ({ x: rnd(7, i, 1), y: rnd(7, i, 2), s: 0.3 + rnd(7, i, 3) * 0.7, p: rnd(7, i, 4) * 6.28 }));
   /** skala: piksele CSS na jednostkę projektu */
   scale = 1;
 
@@ -416,6 +434,88 @@ export class ClimbView {
     this.vh = 0;
     this.prevHold = 0;
     this.cam = NaN;
+    this.parts = [];
+    this.wasFinished = false;
+    this.lastStamp = -1e9;
+  }
+
+  private burst(kind: Feedback, at: P) {
+    const n = kind === 'perfect' ? 14 : kind === 'good' ? 7 : kind === 'wrong' ? 9 : 5;
+    const cols = kind === 'perfect' ? ['#ffe27a', '#ffffff', '#7be3a4'] : kind === 'wrong' ? ['#9aa0b8', '#c9ccd8'] : ['#ffffff', '#e8e4d4'];
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = (kind === 'perfect' ? 90 : 55) + Math.random() * 80;
+      this.parts.push({
+        x: at.x,
+        y: at.y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 30,
+        g: kind === 'wrong' ? 420 : 160,
+        life: 600,
+        max: 600,
+        r: 2 + Math.random() * 3,
+        color: cols[i % cols.length],
+        shape: kind === 'perfect' && i % 3 === 0 ? 'star' : 'dot',
+      });
+    }
+  }
+
+  private confetti(at: P) {
+    const cols = ['#f2c94c', '#2fbf71', '#5b8fd1', '#e5484d', '#ffffff', '#8b6cc9'];
+    for (let i = 0; i < 46; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+      const sp = 120 + Math.random() * 200;
+      this.parts.push({
+        x: at.x,
+        y: at.y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        g: 300,
+        life: 2200,
+        max: 2200,
+        r: 3 + Math.random() * 3,
+        color: cols[i % cols.length],
+        shape: 'rect',
+      });
+    }
+  }
+
+  private stepParticles(ctx: CanvasRenderingContext2D, dt: number) {
+    if (!this.parts.length) return;
+    const s = dt / 1000;
+    this.parts = this.parts.filter((p) => p.life > 0);
+    for (const p of this.parts) {
+      p.life -= dt;
+      p.vy += p.g * s;
+      p.x += p.vx * s;
+      p.y += p.vy * s;
+      ctx.globalAlpha = Math.min(1, (p.life / p.max) * 1.6);
+      ctx.fillStyle = p.color;
+      if (p.shape === 'rect') {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.life * 0.01 + p.r);
+        ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r);
+        ctx.restore();
+      } else if (p.shape === 'star') {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.life * 0.008);
+        ctx.beginPath();
+        for (let k = 0; k < 8; k++) {
+          const rr = k % 2 ? p.r * 0.5 : p.r * 1.6;
+          const an = (k * Math.PI) / 4;
+          ctx.lineTo(Math.cos(an) * rr, Math.sin(an) * rr);
+        }
+        ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 
   private resize() {
@@ -451,18 +551,30 @@ export class ClimbView {
     };
 
     let pose: Pose;
-    if (v.finished && this.vh > CFG.holds - 0.05) pose = poseTop(cx);
-    else if (v.feedback === 'wrong' && v.feedbackAge < 600) {
+    let still = false; // hanging at the start or standing on top: gentle breathing sway
+    if (v.finished && this.vh > CFG.holds - 0.05) {
+      pose = poseTop(cx);
+      still = true;
+    } else if (v.feedback === 'wrong' && v.feedbackAge < 600) {
       const g = at(this.vh);
       pose = poseSlip(g, g.x >= cx ? 1 : -1);
-    } else if (this.vh < 0.5) pose = poseHang(pt(cx, 0));
-    else pose = poseClimb(at(this.vh), at(this.vh - 1), Math.round(this.vh) % 2);
+    } else if (this.vh < 0.5) {
+      pose = poseHang(pt(cx, 0));
+      still = true;
+    } else pose = poseClimb(at(this.vh), at(this.vh - 1), Math.round(this.vh) % 2);
 
     const camMax = FLOOR_Y + 30 - Hd;
     const target = Math.max(LEDGE_Y - 200, Math.min(pose.S.y - Hd * 0.62, camMax));
     if (Number.isNaN(this.cam)) this.cam = target;
     else this.cam += (target - this.cam) * (1 - Math.exp(-dt / 110));
     const shake = now < this.shakeUntil ? Math.sin(now / 18) * 4 : 0;
+    if (still) {
+      pose = {
+        ...pose,
+        S: pt(pose.S.x, pose.S.y + Math.sin(now / 650 + v.look * 1.7) * 2.4),
+        angle: pose.angle + Math.sin(now / 1000 + v.look) * 0.025,
+      };
+    }
 
     ctx.setTransform(this.dpr * k, 0, 0, this.dpr * k, 0, 0);
     ctx.fillStyle = '#e7e6ea';
@@ -635,6 +747,17 @@ export class ClimbView {
 
     if (v.present) drawClimber(ctx, LOOKS[v.look % LOOKS.length], pose);
 
+    // particle bursts: a puff of chalk / stars on each hit, dust on a slip, confetti at the summit
+    const stamp = Math.round(now - v.feedbackAge);
+    if (v.present && v.feedback !== 'none' && v.feedbackAge < 120 && Math.abs(stamp - this.lastStamp) > 60) {
+      this.lastStamp = stamp;
+      const hand = pt(pose.S.x + pose.arms[0][2].x, pose.S.y + pose.arms[0][2].y);
+      this.burst(v.feedback, hand);
+    }
+    if (v.present && v.finished && !this.wasFinished) this.confetti(pt(cx, LEDGE_Y - 40));
+    this.wasFinished = v.finished;
+    this.stepParticles(ctx, dt);
+
     // komunikat w stylu komiksowym
     if (v.present && v.feedback !== 'none' && v.feedbackAge < 700) {
       ctx.save();
@@ -652,5 +775,17 @@ export class ClimbView {
       ctx.restore();
     }
     ctx.restore();
+
+    // chalk dust drifting up over the wall (screen space)
+    ctx.fillStyle = '#ffffff';
+    for (const m of this.motes) {
+      const x = cx - WALL_HALF + m.x * WALL_HALF * 2 + Math.sin(now / 1800 + m.p) * 8;
+      const y = Hd - ((m.y * Hd + now * 0.018 * m.s) % Hd);
+      ctx.globalAlpha = 0.18 + 0.16 * Math.sin(now / 900 + m.p);
+      ctx.beginPath();
+      ctx.arc(x, y, 1.2 + m.s * 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 }

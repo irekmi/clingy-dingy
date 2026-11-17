@@ -15,7 +15,7 @@ function start() {
   started = true;
   const dock = document.getElementById('ad-dock')!;
   if (!configured) {
-    dock.innerHTML = '<div class="ad-mock">Miejsce na reklamę (podgląd dev)</div>';
+    dock.innerHTML = '<div class="ad-mock">Ad space (dev preview)</div>';
     return;
   }
   // Okno zgody na cookies (CMP) wyświetla sam Google po włączeniu „Prywatność i komunikaty” w AdSense.

@@ -61,19 +61,19 @@ export function initAccounts() {
 }
 
 const PL_ERRORS: [RegExp, string][] = [
-  [/invalid login credentials/i, 'Nieprawidłowy e-mail lub hasło.'],
-  [/email not confirmed/i, 'Potwierdź najpierw adres e-mail (link w wiadomości od nas).'],
-  [/already registered|already been registered/i, 'Ten e-mail ma już konto – zaloguj się.'],
-  [/password should be at least/i, 'Hasło musi mieć co najmniej 6 znaków.'],
-  [/rate limit|too many/i, 'Za dużo prób – spróbuj za kilka minut.'],
-  [/duplicate key|profiles_nick_unique|23505/i, 'Ten nick jest już zajęty.'],
-  [/new password should be different/i, 'Nowe hasło musi się różnić od poprzedniego.'],
-  [/invalid email|unable to validate email/i, 'Nieprawidłowy adres e-mail.'],
+  [/invalid login credentials/i, 'Invalid e-mail or password.'],
+  [/email not confirmed/i, 'Please confirm your e-mail first (link in our message).'],
+  [/already registered|already been registered/i, 'This e-mail already has an account – log in.'],
+  [/password should be at least/i, 'Password must be at least 6 characters.'],
+  [/rate limit|too many/i, 'Too many attempts – try again in a few minutes.'],
+  [/duplicate key|profiles_nick_unique|23505/i, 'This nickname is already taken.'],
+  [/new password should be different/i, 'The new password must differ from the previous one.'],
+  [/invalid email|unable to validate email/i, 'Invalid e-mail address.'],
 ];
 export function plError(e: unknown): string {
   const msg = String((e as { message?: string })?.message ?? e);
   for (const [re, pl] of PL_ERRORS) if (re.test(msg)) return pl;
-  return `Błąd: ${msg}`;
+  return `Error: ${msg}`;
 }
 
 export async function signIn(email: string, password: string) {

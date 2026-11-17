@@ -49,6 +49,23 @@ const PLAYER_ID = randomId();
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
+/**
+ * Paints the overlay. Entrance animations (data-anim="1") play only when the SCREEN changes,
+ * not on every re-render of the same screen (e.g. an opponent toggling ready in the lobby).
+ */
+let lastScreen = '';
+function paintOverlay(html: string, screen: string) {
+  const el = $('overlay');
+  el.dataset.anim = screen !== lastScreen ? '1' : '0';
+  lastScreen = screen;
+  el.innerHTML = html;
+}
+
+function confettiHtml(): string {
+  const cols = ['#f2c94c', '#2fbf71', '#5b8fd1', '#e5484d', '#ffffff', '#8b6cc9'];
+  return `<div class="confetti" aria-hidden="true">${Array.from({ length: 30 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${((i * 53) % 90) / 100}s;--t:${1.8 + ((i * 17) % 10) / 10}s;--c:${cols[i % cols.length]};--r:${(i * 47) % 360}deg"></i>`).join('')}</div>`;
+}
+
 function getNick(): string {
   const acc = getAccount();
   if (acc) return acc.nick;
@@ -58,7 +75,10 @@ function getNick(): string {
   } catch {
     /* brak dostępu do storage */
   }
-  return n || `Gracz${Math.floor(100 + Math.random() * 900)}`;
+  if (n) return n;
+  n = `Player${Math.floor(100 + Math.random() * 900)}`;
+  saveNick(n); // keep the generated nickname so every place in the UI shows the same one
+  return n;
 }
 function saveNick(n: string) {
   try {
@@ -70,19 +90,19 @@ function saveNick(n: string) {
 
 const MODE_NOTE = USE_SUPABASE
   ? ''
-  : 'Tryb lokalny (bez serwera): pozostali gracze otwierają link w innych oknach tej samej przeglądarki.';
+  : 'Local mode (no server): other players open the link in other windows of the same browser.';
 
 const color = (slot: number) => PLAYER_COLORS[Math.max(0, slot) % PLAYER_COLORS.length];
 const secs = (ms: number) => (ms / 1000).toFixed(2);
 
 const belka = (sub: string) => `
   <header class="belka">
-    <div class="tor me"><small>TOR</small>1</div>
+    <div class="tor me"><small>LANE</small>1</div>
     <div class="title"><h1>CLINGY DINGY</h1><span>${esc(sub)}</span></div>
-    <div class="tor opp"><small>DO</small>6</div>
+    <div class="tor opp"><small>UP TO</small>6</div>
   </header>`;
 
-const TROPHY = `<svg width="28" height="28" viewBox="0 0 30 30" role="img" aria-label="Zwycięzca"><path d="M8 4 H22 V11 Q22 18 15 18 Q8 18 8 11 Z" fill="#f2c94c" stroke="#a37a12" stroke-width="2"></path><path d="M8 7 H4 Q4 13 9 13 M22 7 H26 Q26 13 21 13" fill="none" stroke="#f2c94c" stroke-width="2.5"></path><rect x="13" y="18" width="4" height="5" fill="#f2c94c"></rect><rect x="9" y="23" width="12" height="4" rx="1.5" fill="#f2c94c" stroke="#a37a12" stroke-width="1.5"></rect></svg>`;
+const TROPHY = `<svg width="28" height="28" viewBox="0 0 30 30" role="img" aria-label="Winner"><path d="M8 4 H22 V11 Q22 18 15 18 Q8 18 8 11 Z" fill="#f2c94c" stroke="#a37a12" stroke-width="2"></path><path d="M8 7 H4 Q4 13 9 13 M22 7 H26 Q26 13 21 13" fill="none" stroke="#f2c94c" stroke-width="2.5"></path><rect x="13" y="18" width="4" height="5" fill="#f2c94c"></rect><rect x="9" y="23" width="12" height="4" rx="1.5" fill="#f2c94c" stroke="#a37a12" stroke-width="1.5"></rect></svg>`;
 
 function setText(id: string, text: string) {
   const el = $(id);
@@ -117,7 +137,7 @@ function syncOppPanels(ids: string[]) {
       const el = document.createElement('div');
       el.className = 'panel';
       const cv = document.createElement('canvas');
-      cv.setAttribute('aria-label', 'Ściana przeciwnika');
+      cv.setAttribute('aria-label', 'Opponent wall');
       const tag = document.createElement('div');
       tag.className = 'tag';
       el.append(cv, tag);
@@ -262,7 +282,7 @@ class Room {
         this.refresh();
       })
       .catch((e) => {
-        this.error = `Nie udało się połączyć z serwerem gry (${e?.message ?? e}).`;
+        this.error = `Could not connect to the game server (${e?.message ?? e}).`;
         this.refresh();
       });
     this.offAccount = onAccountChange((a) => {
@@ -597,7 +617,7 @@ class Room {
         now,
         dt,
       );
-      const tagText = id === '__empty' ? '' : live ? `${o.nick} · ${o.left ? 'wyszedł' : o.ms !== null ? secs(o.ms) + ' s' : o.hold + ' m'}` : pl?.nick ?? '';
+      const tagText = id === '__empty' ? '' : live ? `${o.nick} · ${o.left ? 'left' : o.ms !== null ? secs(o.ms) + ' s' : o.hold + ' m'}` : pl?.nick ?? '';
       if (panel.tag.textContent !== tagText) panel.tag.textContent = tagText;
       const bg = color(slot);
       if (panel.tag.style.background !== bg) panel.tag.style.background = bg;
@@ -634,8 +654,8 @@ class Room {
       setText('hud-op-name', this.opps.size > 1 ? `▲ ${leader.nick}` : leader.nick);
       setText('hud-op-sub', `${leader.hold} m · ${secs(oppTime(leader))}`);
     } else {
-      setText('hud-op-name', 'Przeciwnik');
-      setText('hud-op-sub', 'wyszedł');
+      setText('hud-op-name', 'Opponent');
+      setText('hud-op-sub', 'left');
     }
     // paski wyścigu: wszyscy uczestnicy w kolejności miejsc startowych
     const race = $('hud-race');
@@ -664,14 +684,14 @@ class Room {
     const html = this.overlayHtml();
     if (html === this.overlayKey) return;
     this.overlayKey = html;
-    $('overlay').innerHTML = html;
+    paintOverlay(html, `${this.error ? 'err' : this.phase}-${this.round}`);
   }
 
   private overlayHtml(): string {
     if (this.error) {
-      return `<div class="dim"></div><div class="studio">${belka(`pokój ${this.code}`)}
+      return `<div class="dim"></div><div class="studio">${belka(`room ${this.code}`)}
         <section class="actions"><div class="abar"><p class="hint err" style="flex:1">${esc(this.error)}</p>
-        <button class="btn ghost" data-action="leave">Wróć</button></div></section></div>`;
+        <button class="btn ghost" data-action="leave">Back</button></div></section></div>`;
     }
     switch (this.phase) {
       case 'countdown': {
@@ -682,7 +702,7 @@ class Room {
         return performance.now() - this.goAt < 700 ? '<div class="count go">START!</div>' : '';
       case 'finished': {
         const waiting = [...this.opps.values()].filter((o) => o.ms === null && !o.left).length;
-        return `<div class="banner"><span>Szczyt! <b>${fmtTime(this.myMs!)}</b> – czekam na ${waiting > 1 ? `${waiting} graczy` : 'przeciwnika'}…</span></div>`;
+        return `<div class="banner"><span>Summit! <b>${fmtTime(this.myMs!)}</b> – waiting for ${waiting > 1 ? `${waiting} players` : 'your opponent'}…</span></div>`;
       }
       default:
         return this.studioHtml();
@@ -695,22 +715,22 @@ class Room {
   }
 
   private readyBadge(p?: PlayerMeta) {
-    return p?.ready ? '<span class="badge ready">GOTOWY ✓</span>' : '<span class="badge wait">czeka…</span>';
+    return p?.ready ? '<span class="badge ready">READY ✓</span>' : '<span class="badge wait">waiting…</span>';
   }
 
   private verifyHtml(): string {
-    if (!USE_SUPABASE) return '<span class="sub">tryb lokalny</span>';
+    if (!USE_SUPABASE) return '<span class="sub">local mode</span>';
     switch (this.verify) {
       case 'ok':
-        return '<span class="verified">zweryfikowany ✓</span>';
+        return '<span class="verified">verified ✓</span>';
       case 'bad':
-        return '<span class="rejected">odrzucony przez serwer ✖</span>';
+        return '<span class="rejected">rejected by server ✖</span>';
       case 'suspect':
-        return '<span class="rejected">do weryfikacji – poza rankingiem</span>';
+        return '<span class="rejected">under review – not ranked</span>';
       case 'error':
-        return '<span class="rejected">nie udało się zapisać wyniku</span>';
+        return '<span class="rejected">could not save the result</span>';
       default:
-        return '<span class="sub">serwer sprawdza…</span>';
+        return '<span class="sub">server is checking…</span>';
     }
   }
 
@@ -719,27 +739,27 @@ class Room {
     const sessionWins = (id: string) => this.session.get(id)?.wins ?? 0;
     if (a.length <= 2) {
       const opp = a.find((p) => p.id !== this.me.id);
-      const meCard = `<div class="pcard slot" style="--c:${color(this.slotOf(this.me.id))}"><div class="lbl"><span>TY</span></div>
-        <div class="row"><span class="name">${esc(this.me.nick)}${this.me.acct ? '<span class="acct">KONTO ✓</span>' : ''}</span>${this.readyBadge(this.me)}</div>
-        <span class="sub">Wygrane w pokoju: ${sessionWins(this.me.id)}</span></div>`;
+      const meCard = `<div class="pcard slot" style="--c:${color(this.slotOf(this.me.id))}"><div class="lbl"><span>YOU</span></div>
+        <div class="row"><span class="name">${esc(this.me.nick)}${this.me.acct ? '<span class="acct">ACCOUNT ✓</span>' : ''}</span>${this.readyBadge(this.me)}</div>
+        <span class="sub">Wins in room: ${sessionWins(this.me.id)}</span></div>`;
       const oppCard = opp
-        ? `<div class="pcard slot" style="--c:${color(this.slotOf(opp.id))}"><div class="lbl"><span>PRZECIWNIK</span></div>
-          <div class="row"><span class="name">${esc(opp.nick)}${opp.acct ? '<span class="acct">KONTO ✓</span>' : ''}</span>${this.readyBadge(opp)}</div>
-          <span class="sub">Wygrane w pokoju: ${sessionWins(opp.id)}</span></div>`
-        : `<div class="pcard empty"><div class="lbl"><span>PRZECIWNIK</span></div>
-          <span class="name">Wolny tor</span><span class="sub">Wyślij link – do pokoju wejdzie do ${MAX_PLAYERS} osób.</span></div>`;
-      return `<section class="cards" aria-label="Gracze">${meCard}<div class="vs">VS</div>${oppCard}</section>`;
+        ? `<div class="pcard slot" style="--c:${color(this.slotOf(opp.id))}"><div class="lbl"><span>OPPONENT</span></div>
+          <div class="row"><span class="name">${esc(opp.nick)}${opp.acct ? '<span class="acct">ACCOUNT ✓</span>' : ''}</span>${this.readyBadge(opp)}</div>
+          <span class="sub">Wins in room: ${sessionWins(opp.id)}</span></div>`
+        : `<div class="pcard empty"><div class="lbl"><span>OPPONENT</span></div>
+          <span class="name">Free lane</span><span class="sub">Share the link – up to ${MAX_PLAYERS} players can join.</span></div>`;
+      return `<section class="cards" aria-label="Players">${meCard}<div class="vs">VS</div>${oppCard}</section>`;
     }
     const cards = a.map((p) => {
       const isMe = p.id === this.me.id;
-      return `<div class="pcard slot" style="--c:${color(this.slotOf(p.id))}"><div class="lbl"><span>${isMe ? 'TY' : `TOR ${this.slotOf(p.id) + 1}`}</span></div>
+      return `<div class="pcard slot" style="--c:${color(this.slotOf(p.id))}"><div class="lbl"><span>${isMe ? 'YOU' : `LANE ${this.slotOf(p.id) + 1}`}</span></div>
         <div class="row"><span class="name">${esc(p.nick)}${p.acct ? '<span class="acct">✓</span>' : ''}</span>${this.readyBadge(p)}</div>
-        <span class="sub">Wygrane: ${sessionWins(p.id)}</span></div>`;
+        <span class="sub">Wins: ${sessionWins(p.id)}</span></div>`;
     });
     if (a.length < MAX_PLAYERS) {
-      cards.push(`<div class="pcard free"><div class="lbl"><span>WOLNE MIEJSCE</span></div><span class="sub">jeszcze ${MAX_PLAYERS - a.length} ${MAX_PLAYERS - a.length === 1 ? 'osoba' : 'osoby'}</span></div>`);
+      cards.push(`<div class="pcard free"><div class="lbl"><span>FREE SLOT</span></div><span class="sub">${MAX_PLAYERS - a.length} more ${MAX_PLAYERS - a.length === 1 ? 'player' : 'players'}</span></div>`);
     }
-    return `<section class="cards many" aria-label="Gracze (${a.length}/${MAX_PLAYERS})">${cards.join('')}</section>`;
+    return `<section class="cards many" aria-label="Players (${a.length}/${MAX_PLAYERS})">${cards.join('')}</section>`;
   }
 
   private resultCards(st: Standing[]): string {
@@ -748,35 +768,35 @@ class Room {
     const op = st.find((s) => !s.me)!;
     const meWin = st[0].me;
     const opCard = (s: Standing) => {
-      const state = s.ms === null ? (s.left ? 'opuścił grę' : '') : s.valid ? '<span class="verified">sprawdzony ✓</span>' : '<span class="rejected">wynik odrzucony ✖</span>';
+      const state = s.ms === null ? (s.left ? 'left the game' : '') : s.valid ? '<span class="verified">checked ✓</span>' : '<span class="rejected">result rejected ✖</span>';
       return `<div class="pcard slot${!meWin ? ' winner' : ''}" style="--c:${color(s.slot)}">
-        <div class="lbl"><span>PRZECIWNIK · ${esc(s.nick.toUpperCase())}</span>${!meWin ? TROPHY : ''}</div>
+        <div class="lbl"><span>OPPONENT · ${esc(s.nick.toUpperCase())}</span>${!meWin ? TROPHY : ''}</div>
         <span class="time">${s.ms === null ? '—' : fmtTime(s.ms)}</span>
-        <span class="sub">${s.ms !== null ? `perfekt ${s.perfects}/${CFG.holds}` : ''}</span>${state}</div>`;
+        <span class="sub">${s.ms !== null ? `perfect ${s.perfects}/${CFG.holds}` : ''}</span>${state}</div>`;
     };
     let mid = '<div class="vs">VS</div>';
     if (op.ms !== null && op.valid && me.ms !== null && op.ms !== me.ms) {
-      mid = `<div class="vs"><small>${meWin ? 'szybciej o' : 'wolniej o'}</small><b>${secs(Math.abs(op.ms - me.ms))} s</b></div>`;
+      mid = `<div class="vs"><small>${meWin ? 'faster by' : 'slower by'}</small><b>${secs(Math.abs(op.ms - me.ms))} s</b></div>`;
     }
-    return `<section class="cards" aria-label="Wyniki">
+    return `<section class="cards" aria-label="Results">
       <div class="pcard slot${meWin ? ' winner' : ''}" style="--c:${color(me.slot)}">
-        <div class="lbl"><span>TY · ${esc(me.nick.toUpperCase())}</span>${meWin ? TROPHY : ''}</div>
+        <div class="lbl"><span>YOU · ${esc(me.nick.toUpperCase())}</span>${meWin ? TROPHY : ''}</div>
         <span class="time">${fmtTime(me.ms!)}</span>
-        <span class="sub">perfekt ${me.perfects}/${CFG.holds}</span>${this.verifyHtml()}</div>
+        <span class="sub">perfect ${me.perfects}/${CFG.holds}</span>${this.verifyHtml()}</div>
       ${mid}${opCard(op)}</section>`;
   }
 
   private roundTable(st: Standing[]): string {
     const rows = st
       .map((s, i) => {
-        const time = s.ms === null ? (s.left ? 'wyszedł' : '—') : s.valid ? `${secs(s.ms)} s` : 'odrzucony';
-        const extra = s.me ? this.verifyHtml().replace(/<[^>]+>/g, '') : s.ms !== null && s.valid ? `perfekt ${s.perfects}` : '';
+        const time = s.ms === null ? (s.left ? 'left' : '—') : s.valid ? `${secs(s.ms)} s` : 'rejected';
+        const extra = s.me ? this.verifyHtml().replace(/<[^>]+>/g, '') : s.ms !== null && s.valid ? `perfect ${s.perfects}` : '';
         return `<tr class="${s.me ? 'mine' : ''} ${i === 0 && s.valid ? 'gold' : ''}"><td class="pl">${i + 1}.</td>
           <td><span class="dot" style="background:${color(s.slot)}"></span>${esc(s.nick)}${s.me ? ' (Ty)' : ''}</td>
           <td class="s">${esc(extra)}</td><td class="t">${time}</td></tr>`;
       })
       .join('');
-    return `<div class="tbl"><h2>WYNIKI RUNDY ${this.round}</h2><table>${rows}</table></div>`;
+    return `<div class="tbl"><h2>ROUND ${this.round} RESULTS</h2><table>${rows}</table></div>`;
   }
 
   private sessionTable(): string {
@@ -785,19 +805,19 @@ class Room {
       .map(
         ([id, r], i) => `<tr class="${id === this.me.id ? 'mine' : ''}"><td class="pl">${i + 1}.</td>
           <td><span class="dot" style="background:${color(r.slot)}"></span>${esc(r.nick)}</td>
-          <td class="s">${r.wins} ${r.wins === 1 ? 'wygrana' : 'wygr.'} · ${r.rounds} rund</td>
+          <td class="s">${r.wins} ${r.wins === 1 ? 'win' : 'wins'} · ${r.rounds} ${r.rounds === 1 ? 'round' : 'rounds'}</td>
           <td class="t">${r.best === null ? '—' : `${secs(r.best)} s`}</td></tr>`,
       )
       .join('');
-    return `<div class="tbl"><h2>RANKING POKOJU · NAJLEPSZE CZASY</h2>${rows ? `<table>${rows}</table>` : '<p class="empty">Jeszcze nikt nie ukończył rundy.</p>'}</div>`;
+    return `<div class="tbl"><h2>ROOM RANKING · BEST TIMES</h2>${rows ? `<table>${rows}</table>` : '<p class="empty">Nobody has finished a round yet.</p>'}</div>`;
   }
 
   private accountLine(): string {
     if (!accountsEnabled || !USE_SUPABASE) return '';
     const acc = getAccount();
-    if (!acc) return 'Grasz jako gość – zaloguj się w menu, a Twoje czasy trafią do rankingu.';
+    if (!acc) return 'Playing as a guest – log in from the menu to get your times ranked.';
     if (this.myRecord?.best != null) {
-      return `Twój rekord: <b>${secs(this.myRecord.best)} s</b>${this.myRecord.place ? ` · miejsce <b>#${this.myRecord.place}</b> w rankingu` : ''}`;
+      return `Your record: <b>${secs(this.myRecord.best)} s</b>${this.myRecord.place ? ` · rank <b>#${this.myRecord.place}</b>` : ''}`;
     }
     return '';
   }
@@ -815,9 +835,9 @@ class Room {
       const place = st.findIndex((s) => s.me) + 1;
       const first = st[0];
       const draw = place > 1 && first.ms !== null && first.ms === this.myMs;
-      const label = place === 1 ? 'WYGRANA!' : draw ? 'REMIS' : st.length === 2 ? 'PRZEGRANA' : `${place}. MIEJSCE`;
+      const label = place === 1 ? 'YOU WIN!' : draw ? 'DRAW' : st.length === 2 ? 'YOU LOSE' : `PLACE #${place}`;
       const cls = place === 1 ? 'win' : draw ? 'draw' : 'lose';
-      head = `<div class="result-banner ${cls}">${label}</div>`;
+      head = `<div class="result-banner ${cls}">${label}</div>${place === 1 ? confettiHtml() : ''}`;
       body =
         st.length === 2
           ? `${this.resultCards(st)}<div class="panels">${this.sessionTable()}</div>`
@@ -826,29 +846,29 @@ class Room {
       body = this.lobbyCards() + (this.session.size ? `<div class="panels">${this.sessionTable()}</div>` : '');
     }
 
-    const readyLabel = this.me.ready ? (results ? 'Anuluj rewanż' : 'Anuluj gotowość') : results ? 'Rewanż!' : 'Gotowy!';
+    const readyLabel = this.me.ready ? (results ? 'Cancel rematch' : 'Cancel ready') : results ? 'Rematch!' : 'Ready!';
     const readyBtn = full
       ? ''
       : `<button class="btn ${this.me.ready ? 'green' : 'blue'} grow" data-action="ready" ${alone ? 'disabled' : ''}>${readyLabel}</button>`;
-    const middle = `<div class="code-box"><div class="lbl"><small>KOD POKOJU · ${a.length}/${MAX_PLAYERS}</small><b>${esc(this.code)}</b></div><button data-action="copy">Kopiuj link</button></div>`;
+    const middle = `<div class="code-box"><div class="lbl"><small>ROOM CODE · ${a.length}/${MAX_PLAYERS}</small><b>${esc(this.code)}</b></div><button data-action="copy">Copy link</button></div>`;
 
     const hints: string[] = [];
-    if (!this.connected) hints.push('Łączenie…');
-    if (full) hints.push(`<span class="err">Pokój jest pełny (max ${MAX_PLAYERS} graczy).</span>`);
-    else if (alone) hints.push(`Wyślij link – do pokoju wejdzie do ${MAX_PLAYERS} osób. Start, gdy wszyscy będą gotowi.`);
+    if (!this.connected) hints.push('Connecting…');
+    if (full) hints.push(`<span class="err">The room is full (max ${MAX_PLAYERS} players).</span>`);
+    else if (alone) hints.push(`Share the link – up to ${MAX_PLAYERS} players can join. The round starts when everyone is ready.`);
     else {
       const notReady = a.filter((p) => !p.ready).length;
-      hints.push(notReady ? `Start, gdy wszyscy będą gotowi (czeka: ${notReady}) · Spacja = gotowy` : 'Startujemy!');
+      hints.push(notReady ? `Starts when everyone is ready (waiting: ${notReady}) · Space = ready` : 'Starting!');
     }
-    if (this.phase === 'lobby' && this.participants.length && !this.participants.includes(this.me.id)) hints.push('Trwa runda – dołączysz do następnej.');
+    if (this.phase === 'lobby' && this.participants.length && !this.participants.includes(this.me.id)) hints.push('A round is in progress – you will join the next one.');
     const acct = results ? this.accountLine() : '';
 
     return `<div class="dim"></div><div class="studio">
-      ${belka(results ? `runda ${this.round} · pokój ${this.code}` : `pokój ${this.code}`)}
+      ${belka(results ? `round ${this.round} · room ${this.code}` : `room ${this.code}`)}
       ${head}
       ${body}
       <section class="actions">
-        <div class="abar">${readyBtn}${middle}<button class="btn ghost" data-action="leave">Wyjdź</button></div>
+        <div class="abar">${readyBtn}${middle}<button class="btn ghost" data-action="leave">Leave</button></div>
         ${hints.map((h) => `<p class="hint">${h}</p>`).join('')}
         ${acct ? `<p class="hint small">${acct}</p>` : ''}
         ${MODE_NOTE ? `<p class="hint small">${esc(MODE_NOTE)}</p>` : ''}
@@ -862,8 +882,8 @@ class Room {
     else if (action === 'copy') {
       const link = `${location.origin}${location.pathname}${location.search}#/r/${this.code}`;
       navigator.clipboard?.writeText(link).then(
-        () => (el.textContent = 'Skopiowano!'),
-        () => prompt('Skopiuj link:', link),
+        () => (el.textContent = 'Copied!'),
+        () => prompt('Copy link:', link),
       );
     }
   }
@@ -890,21 +910,22 @@ const menu = {
 function topbarHtml(): string {
   if (!accountsEnabled) return '';
   const acc = getAccount();
-  const how = '<a class="btn ghost small" href="#/info/jak-grac">Jak grać</a>';
+  const how = '<a class="btn ghost small" href="#/info/jak-grac">How to play</a>';
   if (acc) {
-    return `<nav class="topbar" aria-label="Konto">
-      <span class="who">Cześć, <b>${esc(acc.nick)}</b></span>
-      <button class="btn blue small" data-action="view-account">Moje konto</button>
+    return `<nav class="topbar" aria-label="Account">
+      <span class="welcome">Welcome, <b>${esc(acc.nick)}</b></span>
+      <button class="btn blue small" data-action="view-account">My account</button>
       <button class="btn orange small" data-action="view-ranking">Ranking</button>${how}</nav>`;
   }
-  return `<nav class="topbar" aria-label="Konto">
-    <button class="btn blue small" data-action="view-login">Zaloguj się</button>
-    <button class="btn orange small" data-action="view-register">Załóż konto</button>
+  return `<nav class="topbar" aria-label="Account">
+    <span class="welcome">Welcome, <b>${esc(getNick())}</b><i>guest</i></span>
+    <button class="btn blue small" data-action="view-login">Log in</button>
+    <button class="btn orange small" data-action="view-register">Sign up</button>
     <button class="btn ghost small" data-action="view-ranking">Ranking</button>${how}</nav>`;
 }
 
 function dateStr(iso: string) {
-  return new Date(iso).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 function accountHtml(): string {
@@ -917,148 +938,148 @@ function accountHtml(): string {
   const wins = (rows ?? []).filter((r) => r.won).length;
   const stats = rows
     ? `<div class="stats">
-        <div><b>${valid.length}</b><small>rund</small></div>
-        <div><b>${wins}</b><small>wygranych</small></div>
-        <div><b>${best === null ? '—' : secs(best)}</b><small>rekord (s)</small></div>
-        <div><b>${menu.myBest?.place ? '#' + menu.myBest.place : '—'}</b><small>miejsce</small></div>
+        <div><b>${valid.length}</b><small>rounds</small></div>
+        <div><b>${wins}</b><small>wins</small></div>
+        <div><b>${best === null ? '—' : secs(best)}</b><small>best (s)</small></div>
+        <div><b>${menu.myBest?.place ? '#' + menu.myBest.place : '—'}</b><small>rank</small></div>
       </div>`
     : '';
   const table = menu.historyError
     ? `<p class="empty err">${esc(menu.historyError)}</p>`
     : rows === null
-      ? '<p class="empty">Wczytywanie…</p>'
+      ? '<p class="empty">Loading…</p>'
       : rows.length === 0
-        ? '<p class="empty">Nie masz jeszcze rozegranych rund online. Zagraj, a pojawią się tutaj.</p>'
+        ? '<p class="empty">No online rounds yet. Play one and it will show up here.</p>'
         : `<table>${rows
             .map((r) => {
-              const status = !r.valid ? 'odrzucony' : r.suspect ? 'do weryfikacji' : r.won ? 'wygrana' : r.players > 1 ? `z ${r.players} graczy` : '';
+              const status = !r.valid ? 'rejected' : r.suspect ? 'under review' : r.won ? 'win' : r.players > 1 ? `of ${r.players} players` : '';
               return `<tr class="${r.won ? 'gold' : ''}"><td class="s">${dateStr(r.created_at)}</td><td>${esc(r.room_code)}</td>
                 <td class="s">${status}</td><td class="t">${r.valid && r.verified_ms !== null ? secs(r.verified_ms) + ' s' : '—'}</td></tr>`;
             })
             .join('')}</table>`;
   const err = menu.error ? `<p class="msg err">${esc(menu.error)}</p>` : '';
   const note = menu.note ? `<p class="msg ok">${esc(menu.note)}</p>` : '';
-  return `<div class="form wide2" role="region" aria-label="Moje konto">
-      <h2>Moje konto</h2>
+  return `<div class="form wide2" role="region" aria-label="My account">
+      <h2>My account</h2>
       <p class="msg">${esc(acc.email)}</p>
       ${stats}
-      <label>Nick (widoczny w rankingu)
-        <span class="inline"><input id="f-nick" maxlength="16" value="${esc(menu.nick || acc.nick)}" data-enter="save-nick"><button class="btn blue small" data-action="save-nick" ${menu.busy ? 'disabled' : ''}>Zapisz</button></span>
+      <label>Nickname (shown in the ranking)
+        <span class="inline"><input id="f-nick" maxlength="16" value="${esc(menu.nick || acc.nick)}" data-enter="save-nick"><button class="btn blue small" data-action="save-nick" ${menu.busy ? 'disabled' : ''}>Save</button></span>
       </label>
       ${err}${note}
-      <div class="tbl"><h2>OSTATNIE RUNDY</h2>${table}</div>
-      <div class="row2"><button class="linkbtn" data-action="send-reset">Zmień hasło (wyślij link na e-mail)</button><button class="linkbtn" data-action="logout">Wyloguj</button><button class="linkbtn" data-action="view-main">Wróć</button></div>
+      <div class="tbl"><h2>RECENT ROUNDS</h2>${table}</div>
+      <div class="row2"><button class="linkbtn" data-action="send-reset">Change password (we e-mail you a link)</button><button class="linkbtn" data-action="logout">Log out</button><button class="linkbtn" data-action="view-main">Back</button></div>
     </div>`;
 }
 
 function menuHtml(): string {
   const acc = getAccount();
-  const wrap = (inner: string) => `<div class="dim"></div><div class="studio">${topbarHtml()}${belka('wspinaczka na czas · do 6 graczy')}${inner}</div>`;
+  const wrap = (inner: string) => `<div class="dim"></div><div class="studio">${topbarHtml()}${belka('timed climbing · up to 6 players')}${inner}</div>`;
   const err = menu.error ? `<p class="msg err">${esc(menu.error)}</p>` : '';
   const note = menu.note ? `<p class="msg ok">${esc(menu.note)}</p>` : '';
   const dis = menu.busy ? 'disabled' : '';
 
   if (menu.view === 'login') {
     return wrap(`<div class="form" role="form" aria-label="Logowanie">
-      <h2>Zaloguj się</h2>
+      <h2>Log in</h2>
       <label>E-mail<input id="f-email" type="email" autocomplete="email" value="${esc(menu.email)}" data-enter="do-login"></label>
-      <label>Hasło<input id="f-pass" type="password" autocomplete="current-password" data-enter="do-login"></label>
+      <label>Password<input id="f-pass" type="password" autocomplete="current-password" data-enter="do-login"></label>
       ${err}${note}
-      <button class="btn blue" data-action="do-login" ${dis}>${menu.busy ? 'Logowanie…' : 'Zaloguj'}</button>
-      <div class="row2"><button class="linkbtn" data-action="view-register">Nie masz konta? Załóż</button><button class="linkbtn" data-action="view-forgot">Zapomniałem hasła</button><button class="linkbtn" data-action="view-main">Wróć</button></div>
+      <button class="btn blue" data-action="do-login" ${dis}>${menu.busy ? 'Logging in…' : 'Log in'}</button>
+      <div class="row2"><button class="linkbtn" data-action="view-register">No account? Sign up</button><button class="linkbtn" data-action="view-forgot">Forgot password</button><button class="linkbtn" data-action="view-main">Back</button></div>
     </div>`);
   }
   if (menu.view === 'forgot') {
-    return wrap(`<div class="form" role="form" aria-label="Reset hasła">
-      <h2>Reset hasła</h2>
-      <p class="msg">Podaj e-mail konta – wyślemy link do ustawienia nowego hasła.</p>
+    return wrap(`<div class="form" role="form" aria-label="Reset password">
+      <h2>Reset password</h2>
+      <p class="msg">Enter your account e-mail – we will send a link to set a new password.</p>
       <label>E-mail<input id="f-email" type="email" autocomplete="email" value="${esc(menu.email)}" data-enter="do-forgot"></label>
       ${err}${note}
-      <button class="btn blue" data-action="do-forgot" ${dis}>${menu.busy ? 'Wysyłanie…' : 'Wyślij link'}</button>
-      <div class="row2"><button class="linkbtn" data-action="view-login">Wróć do logowania</button></div>
+      <button class="btn blue" data-action="do-forgot" ${dis}>${menu.busy ? 'Sending…' : 'Send link'}</button>
+      <div class="row2"><button class="linkbtn" data-action="view-login">Back to login</button></div>
     </div>`);
   }
   if (menu.view === 'recovery') {
-    return wrap(`<div class="form" role="form" aria-label="Nowe hasło">
-      <h2>Ustaw nowe hasło</h2>
-      <label>Nowe hasło (min. 6 znaków)<input id="f-pass" type="password" autocomplete="new-password" data-enter="do-recovery"></label>
+    return wrap(`<div class="form" role="form" aria-label="New password">
+      <h2>Set a new password</h2>
+      <label>New password (min. 6 characters)<input id="f-pass" type="password" autocomplete="new-password" data-enter="do-recovery"></label>
       ${err}
-      <button class="btn blue" data-action="do-recovery" ${dis}>${menu.busy ? 'Zapisywanie…' : 'Zapisz hasło'}</button>
+      <button class="btn blue" data-action="do-recovery" ${dis}>${menu.busy ? 'Saving…' : 'Save password'}</button>
     </div>`);
   }
   if (menu.view === 'register') {
     return wrap(`<div class="form" role="form" aria-label="Rejestracja">
-      <h2>Załóż konto</h2>
-      <label>Nick (widoczny w rankingu)<input id="f-nick" maxlength="16" autocomplete="nickname" value="${esc(menu.nick || getNick())}" data-enter="do-register"></label>
+      <h2>Create account</h2>
+      <label>Nickname (shown in the ranking)<input id="f-nick" maxlength="16" autocomplete="nickname" value="${esc(menu.nick || getNick())}" data-enter="do-register"></label>
       <label>E-mail<input id="f-email" type="email" autocomplete="email" value="${esc(menu.email)}" data-enter="do-register"></label>
-      <label>Hasło (min. 6 znaków)<input id="f-pass" type="password" autocomplete="new-password" data-enter="do-register"></label>
+      <label>Password (min. 6 characters)<input id="f-pass" type="password" autocomplete="new-password" data-enter="do-register"></label>
       ${err}
-      <button class="btn blue" data-action="do-register" ${dis}>${menu.busy ? 'Zakładanie…' : 'Załóż konto'}</button>
-      <div class="row2"><button class="linkbtn" data-action="view-login">Mam konto – zaloguj</button><button class="linkbtn" data-action="view-main">Wróć</button></div>
+      <button class="btn blue" data-action="do-register" ${dis}>${menu.busy ? 'Creating…' : 'Create account'}</button>
+      <div class="row2"><button class="linkbtn" data-action="view-login">I have an account – log in</button><button class="linkbtn" data-action="view-main">Back</button></div>
     </div>`);
   }
   if (menu.view === 'check') {
     return wrap(`<div class="form">
-      <h2>Sprawdź skrzynkę</h2>
-      <p class="msg ok">Wysłaliśmy link aktywacyjny na <b>${esc(menu.email)}</b>. Kliknij go – wrócisz do gry już zalogowany.</p>
-      <p class="msg">Nie widzisz wiadomości? Zajrzyj do spamu.</p>
-      <button class="btn ghost" data-action="view-main">Wróć do menu</button>
+      <h2>Check your inbox</h2>
+      <p class="msg ok">We sent an activation link to <b>${esc(menu.email)}</b>. Click it – you will be back in the game, already logged in.</p>
+      <p class="msg">Can't see the e-mail? Check your spam folder.</p>
+      <button class="btn ghost" data-action="view-main">Back to menu</button>
     </div>`);
   }
   if (menu.view === 'account') {
-    return wrap(acc ? accountHtml() : '<div class="form"><p class="msg">Zaloguj się, żeby zobaczyć swoje konto.</p><button class="btn blue" data-action="view-login">Zaloguj się</button></div>');
+    return wrap(acc ? accountHtml() : '<div class="form"><p class="msg">Log in to see your account.</p><button class="btn blue" data-action="view-login">Log in</button></div>');
   }
   if (menu.view === 'ranking') {
     const rows = menu.ranking;
     const table = menu.rankingError
       ? `<p class="empty err">${esc(menu.rankingError)}</p>`
       : rows === null
-        ? '<p class="empty">Wczytywanie…</p>'
+        ? '<p class="empty">Loading…</p>'
         : rows.length === 0
-          ? '<p class="empty">Ranking jest jeszcze pusty – bądź pierwszy!</p>'
+          ? '<p class="empty">The ranking is still empty – be the first!</p>'
           : `<table>${rows
               .map(
                 (r, i) => `<tr class="${acc?.userId === r.user_id ? 'mine' : ''} ${i < 3 ? 'gold' : ''}"><td class="pl">${i + 1}.</td><td>${esc(r.nick)}</td>
-                <td class="s">${new Date(r.achieved_at).toLocaleDateString('pl-PL')}</td><td class="t">${secs(r.best_ms)} s</td></tr>`,
+                <td class="s">${new Date(r.achieved_at).toLocaleDateString('en-GB')}</td><td class="t">${secs(r.best_ms)} s</td></tr>`,
               )
               .join('')}</table>`;
     const mine = acc
       ? menu.myBest?.best != null
-        ? `<p class="hint small">Twój rekord: <b>${secs(menu.myBest.best)} s</b>${menu.myBest.place ? ` · miejsce #${menu.myBest.place}` : ''}</p>`
-        : '<p class="hint small">Nie masz jeszcze zweryfikowanego czasu – zagraj rundę!</p>'
-      : '<p class="hint small">Zaloguj się, żeby Twoje czasy trafiały do rankingu.</p>';
-    return wrap(`<div class="tbl wide"><h2>RANKING OGÓLNY · NAJLEPSZE CZASY</h2>${table}</div>${mine}
-      <button class="btn ghost" data-action="view-main">Wróć</button>`);
+        ? `<p class="hint small">Your record: <b>${secs(menu.myBest.best)} s</b>${menu.myBest.place ? ` · rank #${menu.myBest.place}` : ''}</p>`
+        : '<p class="hint small">You have no verified time yet – play a round!</p>'
+      : '<p class="hint small">Log in to get your times into the ranking.</p>';
+    return wrap(`<div class="tbl wide"><h2>GLOBAL RANKING · BEST TIMES</h2>${table}</div>${mine}
+      <button class="btn ghost" data-action="view-main">Back</button>`);
   }
 
   const nickField = acc
-    ? `<div class="row"><span class="name">${esc(acc.nick)}</span><span class="acct">KONTO ✓</span></div><span class="sub">Twoje czasy trafiają do rankingu.</span>`
-    : `<label>Twój nick<input id="nick" maxlength="16" value="${esc(getNick())}" autocomplete="off" spellcheck="false"></label>`;
+    ? `<div class="row"><span class="name">${esc(acc.nick)}</span><span class="acct">ACCOUNT ✓</span></div><span class="sub">Your times go to the ranking.</span>`
+    : `<label>Your nickname<input id="nick" maxlength="16" value="${esc(getNick())}" autocomplete="off" spellcheck="false"></label>`;
   return wrap(`
     ${note ? `<div class="form">${note}</div>` : ''}
-    <section class="cards" aria-label="Gracze">
-      <div class="pcard slot" style="--c:${color(0)}"><div class="lbl"><span>TY</span></div>${nickField}</div>
+    <section class="cards" aria-label="Players">
+      <div class="pcard slot" style="--c:${color(0)}"><div class="lbl"><span>YOU</span></div>${nickField}</div>
       <div class="vs">VS</div>
-      <div class="pcard empty"><div class="lbl"><span>PRZECIWNICY</span></div>
-        <span class="name">Wolne tory</span><span class="sub">Utwórz pokój i wyślij link – zagra do ${MAX_PLAYERS} osób.</span></div>
+      <div class="pcard empty"><div class="lbl"><span>OPPONENTS</span></div>
+        <span class="name">Free lanes</span><span class="sub">Create a room and share the link – up to ${MAX_PLAYERS} players.</span></div>
     </section>
     <section class="actions">
       <div class="abar">
-        <button class="btn blue grow" data-action="create">Utwórz pokój</button>
-        <span class="or">lub</span>
-        <label class="sr" for="join-code">Kod pokoju</label>
-        <input id="join-code" class="code-in" placeholder="KOD" maxlength="8" autocomplete="off" spellcheck="false" data-enter="join">
-        <button class="btn orange" data-action="join">Dołącz</button>
+        <button class="btn blue grow" data-action="create">Create room</button>
+        <span class="or">or</span>
+        <label class="sr" for="join-code">Room code</label>
+        <input id="join-code" class="code-in" placeholder="CODE" maxlength="8" autocomplete="off" spellcheck="false" data-enter="join">
+        <button class="btn orange" data-action="join">Join</button>
       </div>
-      ${!acc && accountsEnabled ? '<p class="hint">Grasz jako gość – <button class="linkbtn big" data-action="view-login">zaloguj się</button>, żeby Twoje czasy trafiały do rankingu.</p>' : ''}
-      <p class="hint">Pierścień na <span class="blue">niebieskim</span> chwycie → gdy się zamknie, wciśnij ← / → (A / D) → liczy się Twój czas</p>
+      ${!acc && accountsEnabled ? '<p class="hint">Playing as a guest – <button class="linkbtn big" data-action="view-login">log in</button> to get your times into the ranking.</p>' : ''}
+      <p class="hint">The ring closes on the <span class="blue">blue</span> hold → press ← / → (A / D) when it closes → your own time counts</p>
       <p class="hint small">${esc(MODE_NOTE || 'Online: Supabase Realtime ✓')}</p>
       ${footerLinksHtml()}
     </section>`);
 }
 
 function renderMenu() {
-  if (!room) $('overlay').innerHTML = menuHtml();
+  if (!room) paintOverlay(menuHtml(), 'menu-' + menu.view);
 }
 
 const val = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value ?? '';
@@ -1104,6 +1125,8 @@ async function openAccount() {
 }
 
 async function menuAction(action: string) {
+  // z podstrony informacyjnej wracamy do menu bez przeładowania widoku
+  if (location.hash.startsWith('#/info/')) history.replaceState(null, '', location.pathname + location.search);
   menu.error = '';
   if (action !== 'view-main') menu.note = '';
   switch (action) {
@@ -1146,7 +1169,7 @@ async function menuAction(action: string) {
       menu.email = val('f-email').trim();
       const pass = val('f-pass');
       if (!menu.email || !pass) {
-        menu.error = 'Podaj e-mail i hasło.';
+        menu.error = 'Enter your e-mail and password.';
         renderMenu();
         return;
       }
@@ -1167,7 +1190,7 @@ async function menuAction(action: string) {
       menu.email = val('f-email').trim();
       const pass = val('f-pass');
       if (!menu.nick || !menu.email || pass.length < 6) {
-        menu.error = 'Podaj nick, e-mail i hasło (min. 6 znaków).';
+        menu.error = 'Enter a nickname, e-mail and password (min. 6 characters).';
         renderMenu();
         return;
       }
@@ -1186,7 +1209,7 @@ async function menuAction(action: string) {
     case 'do-forgot': {
       menu.email = val('f-email').trim();
       if (!menu.email) {
-        menu.error = 'Podaj adres e-mail.';
+        menu.error = 'Enter your e-mail address.';
         renderMenu();
         return;
       }
@@ -1194,7 +1217,7 @@ async function menuAction(action: string) {
       renderMenu();
       try {
         await resetPassword(menu.email);
-        menu.note = `Jeśli konto ${menu.email} istnieje, wysłaliśmy na nie link do zmiany hasła. Sprawdź też spam.`;
+        menu.note = `If an account for ${menu.email} exists, we sent a password-reset link to it. Check spam too.`;
       } catch (e) {
         menu.error = plError(e);
       }
@@ -1205,7 +1228,7 @@ async function menuAction(action: string) {
     case 'do-recovery': {
       const pass = val('f-pass');
       if (pass.length < 6) {
-        menu.error = 'Hasło musi mieć co najmniej 6 znaków.';
+        menu.error = 'Password must be at least 6 characters.';
         renderMenu();
         return;
       }
@@ -1214,7 +1237,7 @@ async function menuAction(action: string) {
       try {
         await updatePassword(pass);
         menu.view = 'main';
-        menu.note = 'Hasło zostało zmienione. Jesteś zalogowany.';
+        menu.note = 'Password changed. You are logged in.';
       } catch (e) {
         menu.error = plError(e);
       }
@@ -1226,7 +1249,7 @@ async function menuAction(action: string) {
       const n = cleanNick(val('f-nick'));
       menu.nick = n;
       if (!n) {
-        menu.error = 'Nick nie może być pusty.';
+        menu.error = 'Nickname cannot be empty.';
         renderMenu();
         return;
       }
@@ -1234,7 +1257,7 @@ async function menuAction(action: string) {
       renderMenu();
       try {
         await changeNick(n);
-        menu.note = 'Nick zapisany.';
+        menu.note = 'Nickname saved.';
         menu.nick = '';
       } catch (e) {
         menu.error = plError(e);
@@ -1248,7 +1271,7 @@ async function menuAction(action: string) {
       if (!acc) return;
       try {
         await resetPassword(acc.email);
-        menu.note = `Wysłaliśmy link do zmiany hasła na ${acc.email}.`;
+        menu.note = `We sent a password-reset link to ${acc.email}.`;
       } catch (e) {
         menu.error = plError(e);
       }
@@ -1273,7 +1296,7 @@ function route() {
   } else if (/^#\/info\/[a-z-]+$/.test(location.hash) && isInfoPage(location.hash.slice(7))) {
     room?.destroy();
     room = null;
-    $('overlay').innerHTML = infoHtml(location.hash.slice(7));
+    paintOverlay(infoHtml(location.hash.slice(7), topbarHtml()), 'info-' + location.hash.slice(7));
     $('overlay').querySelector('.studio')?.scrollTo(0, 0);
   } else {
     if (location.hash.includes('access_token') || location.hash.includes('error_description')) {
