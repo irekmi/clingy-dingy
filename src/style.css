@@ -2355,3 +2355,17 @@ a.who2:hover .pen { opacity: 1; }
   .sheet .b-card { overflow: visible; }
 }
 .win-card.locked .thumb canvas { filter: grayscale(1); }
+
+/* profile: celebrations as compact chips; editor keeps one height whatever is selected */
+.celeb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cchip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 11px; border-radius: 999px; background: var(--ink-2); border: 1px solid transparent; font-size: 12px; font-weight: 900; }
+.cchip.eq { background: rgba(47, 191, 113, 0.18); border-color: var(--ok); color: #c9f5dc; }
+.cchip.locked { color: #6b7080; text-decoration: line-through; }
+.cchip.locked svg { opacity: 0.8; }
+.sheet .editor { height: 450px; max-height: calc(100vh - 150px); }
+.game.ads-on .sheet .editor { max-height: calc(100vh - 250px); }
+.sheet .editor .b-card { height: 100%; }
+@media (max-width: 760px) {
+  .sheet .editor { height: auto; max-height: none; }
+  .sheet .editor .b-card { height: auto; }
+}

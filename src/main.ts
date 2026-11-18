@@ -132,6 +132,7 @@ const svg = (inner: string, size = 20) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 const ICON_TROPHY = svg('<path d="M8 4h8v6a4 4 0 0 1-8 0z"/><path d="M8 6H4a3 3 0 0 0 4 4M16 6h4a3 3 0 0 1-4 4M12 14v4M8 20h8"/>');
 const ICON_HELP = svg('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>');
+const ICON_GEAR = svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>');
 const ICON_INFO = svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>', 18);
 
 /** a note for guests (no session); nothing for a logged-in player */
@@ -1592,9 +1593,8 @@ function fitCanvas(cv: HTMLCanvasElement): CanvasRenderingContext2D | null {
 /** the live previews in the editor (called every frame) */
 function drawEditorPreview(now: number) {
   const cv = document.getElementById('climber-cv') as HTMLCanvasElement | null;
-  if (!cv) return;
-  const ctx = fitCanvas(cv);
-  if (ctx) drawClimberPreview(ctx, cv.clientWidth, cv.clientHeight - 30, editor.outfit, 0, editor.tab === 'victory' ? editor.sel : null, now);
+  const ctx = cv ? fitCanvas(cv) : null;
+  if (cv && ctx) drawClimberPreview(ctx, cv.clientWidth, cv.clientHeight - 30, editor.outfit, 0, editor.tab === 'victory' ? editor.sel : null, now);
   document.querySelectorAll<HTMLCanvasElement>('canvas.celeb-cv').forEach((t) => {
     const c = t.dataset.c as Celebration;
     const tctx = fitCanvas(t);
@@ -1713,8 +1713,8 @@ function profileHtml(): string {
   const celebs = CELEBRATIONS.map((c) => {
     const own = ownsCeleb(c);
     const eq = myCelebration() === c;
-    return `<div class="cel${eq ? ' eq' : ''}${own ? '' : ' locked'}"><span class="thumb"><canvas class="celeb-cv" data-c="${c}"></canvas>${own ? '' : `<span class="strike" aria-hidden="true"></span><span class="lock">${LOCK}</span>`}</span>
-      <span class="cn">${eq ? '★ ' : ''}${CELEB_NAMES[c]}${eq ? '<small>EQUIPPED</small>' : ''}</span>${own ? '' : `<span class="tag price">${CHALK_ICO}${CELEB_PRICE}</span>`}</div>`;
+    const title = own ? (eq ? 'Equipped' : 'Owned') : `Locked · ${CELEB_PRICE} chalk`;
+    return `<span class="cchip${eq ? ' eq' : ''}${own ? '' : ' locked'}" title="${title}">${eq ? '★ ' : ''}${CELEB_NAMES[c]}${own ? '' : LOCK}</span>`;
   }).join('');
   const races = p
     ? h.length
@@ -1745,7 +1745,7 @@ function profileHtml(): string {
       </div>
       <div class="b-card">
         <div class="sec-title"><span>CELEBRATIONS · ${owned} OF ${CELEBRATIONS.length}</span><a href="#/climber/victory">Get more →</a></div>
-        <div class="celeb-row">${celebs}</div>
+        <div class="celeb-chips">${celebs}</div>
         <div class="sec-title"><span>RECENT RACES</span></div>
         <div class="history">${races}</div>
       </div>
@@ -1816,7 +1816,7 @@ function topbar2Html(): string {
   if (!accountsEnabled) return `<div class="topbar2">${who}${help}</div>`;
   const rank = `<a class="icon-btn" href="#/ranking" aria-label="Ranking">${ICON_TROPHY}</a>`;
   const login = acc
-    ? `<a class="chalk-chip" href="#/profile" title="Your profile">${CHALK_ICO}${getWallet()?.chalk ?? '…'}</a>`
+    ? `<span class="chalk-chip" title="Your chalk">${CHALK_ICO}${getWallet()?.chalk ?? '…'}</span><a class="icon-btn" href="#/profile" aria-label="Profile and settings" title="Profile and settings">${ICON_GEAR}</a>`
     : '<button class="btn small blue" data-action="view-login">Log in</button>';
   return acc ? `<div class="topbar2">${who}${login}${rank}${help}</div>` : `<div class="topbar2">${who}${rank}${help}${login}</div>`;
 }
