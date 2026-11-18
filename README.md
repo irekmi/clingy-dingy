@@ -10,17 +10,21 @@
 
 Everything you see is drawn in code on a Canvas 2D (no sprites or image files): the wall, holds, climber, windows, stars and moon. The hall slowly turns from sunset into a starry night as you climb.
 
-| Menu | Start | Climbing at sunset |
+| Menu | Waiting room | Countdown |
 |---|---|---|
-| ![Menu](docs/screenshots/01-menu.jpg) | ![Start](docs/screenshots/02-start.jpg) | ![Climbing at sunset](docs/screenshots/03-climb-sunset.jpg) |
+| ![Menu](docs/screenshots/01-menu.jpg) | ![Waiting room](docs/screenshots/02-room.jpg) | ![Countdown](docs/screenshots/03-countdown.jpg) |
 
-| First stars | Dusk | Night and moon |
+| Sunset | First stars | Night |
 |---|---|---|
-| ![First stars](docs/screenshots/04-climb-first-stars.jpg) | ![Dusk](docs/screenshots/05-climb-dusk.jpg) | ![Night with a moon](docs/screenshots/06-climb-night-moon.jpg) |
+| ![Climbing at sunset](docs/screenshots/04-climb-sunset.jpg) | ![First stars](docs/screenshots/05-climb-first-stars.jpg) | ![Night and a moon](docs/screenshots/06-climb-night.jpg) |
 
-| Summit | Results | Phone |
+| Summit | Solo results | Phone |
 |---|---|---|
-| ![Summit](docs/screenshots/07-summit-flag.jpg) | ![Results](docs/screenshots/08-results.jpg) | <img src="docs/screenshots/09-phone.jpg" alt="Phone layout" width="160"> |
+| ![Summit](docs/screenshots/07-summit.jpg) | ![Solo results](docs/screenshots/08-solo-results.jpg) | <img src="docs/screenshots/11-phone.jpg" alt="Phone layout" width="160"> |
+
+| Duel: live race | Duel: results |
+|---|---|
+| ![Duel race](docs/screenshots/09-duel-race.jpg) | ![Duel results](docs/screenshots/10-duel-results.jpg) |
 
 ## How it plays
 
