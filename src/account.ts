@@ -350,3 +350,37 @@ export async function fetchProfileData(): Promise<ProfileData> {
   }
   return { since: (prof.data?.created_at as string | undefined) ?? null, history, rewards, best };
 }
+
+export interface LedgerRow {
+  delta: number;
+  reason: 'win' | 'purchase' | 'admin';
+  item: string | null;
+  created_at: string;
+  /** climbers in the match (wins only) */
+  players: number | null;
+}
+
+/** my latest chalk operations: wins and purchases */
+export async function fetchLedger(limit = 5): Promise<LedgerRow[]> {
+  if (!current) return [];
+  const { data, error } = await getClient()
+    .from('chalk_ledger')
+    .select('delta,reason,item,match_id,created_at')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  const rows = data ?? [];
+  const ids = rows.map((r) => r.match_id as string | null).filter((x): x is string => !!x);
+  const players = new Map<string, number>();
+  if (ids.length) {
+    const { data: m } = await getClient().from('matches').select('id,players').in('id', ids);
+    for (const x of m ?? []) players.set(x.id as string, ((x.players as unknown[]) ?? []).length);
+  }
+  return rows.map((r) => ({
+    delta: Number(r.delta) || 0,
+    reason: r.reason as LedgerRow['reason'],
+    item: (r.item as string | null) ?? null,
+    created_at: r.created_at as string,
+    players: r.match_id ? (players.get(r.match_id as string) ?? null) : null,
+  }));
+}

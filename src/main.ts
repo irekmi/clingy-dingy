@@ -18,6 +18,8 @@ import {
 import {
   accountPending,
   fetchFastest,
+  fetchLedger,
+  type LedgerRow,
   fetchMatchReward,
   fetchMyWins,
   fetchProfileData,
@@ -1567,6 +1569,9 @@ function editorAction(action: string, el?: HTMLElement): boolean {
     case 'ed-back':
       location.hash = '#/';
       return true;
+    case 'chalk-pop':
+      void toggleChalkPop();
+      return true;
     case 'rk-tab':
       screens.rankTab = el?.dataset.tab === 'wins' ? 'wins' : 'fast';
       renderRanking();
@@ -1808,6 +1813,52 @@ function topbarHtml(): string {
     <button class="btn ghost small" data-action="view-ranking">Ranking</button>${how}</nav>`;
 }
 
+/** the chalk chip in the menu opens a small list of my latest chalk operations */
+const chalkPop = { open: false, rows: null as LedgerRow[] | null, err: '' };
+
+function chalkPopHtml(): string {
+  const rows = chalkPop.rows;
+  let body: string;
+  if (chalkPop.err) body = `<p class="cp-empty err">${esc(chalkPop.err)}</p>`;
+  else if (!rows) body = '<p class="cp-empty">Loading…</p>';
+  else if (!rows.length) body = '<p class="cp-empty">No chalk yet – win a room race to earn some.</p>';
+  else
+    body = rows
+      .map((r) => {
+        const what =
+          r.reason === 'win'
+            ? `Won a room race${r.players ? ` · ${r.players} climbers` : ''}`
+            : r.reason === 'purchase'
+              ? `Unlocked ${CELEB_NAMES[r.item as Celebration] ?? r.item ?? 'an item'}`
+              : 'Adjustment';
+        const plus = r.delta >= 0;
+        return `<div class="cp-row"><span class="cp-what">${esc(what)}<small>${r.reason === 'purchase' ? 'Spent' : 'Earned'} · ${dayLabel(r.created_at)}</small></span><b class="${plus ? 'plus' : 'minus'}">${plus ? '+' : '−'}${Math.abs(r.delta)}</b></div>`;
+      })
+      .join('');
+  return `<div class="chalk-pop" role="dialog" aria-label="Latest chalk"><div class="cp-title">LATEST CHALK</div>${body}</div>`;
+}
+
+async function toggleChalkPop() {
+  chalkPop.open = !chalkPop.open;
+  chalkPop.rows = null;
+  chalkPop.err = '';
+  renderMenu();
+  if (!chalkPop.open) return;
+  try {
+    chalkPop.rows = await fetchLedger(5);
+  } catch (e) {
+    chalkPop.err = plError(e);
+  }
+  if (chalkPop.open && !room) renderMenu();
+}
+
+function closeChalkPop(): boolean {
+  if (!chalkPop.open) return false;
+  chalkPop.open = false;
+  if (!room) renderMenu();
+  return true;
+}
+
 /** v2 top bar: who I am, ranking, help, log in / my account */
 function topbar2Html(): string {
   const acc = getAccount();
@@ -1816,7 +1867,7 @@ function topbar2Html(): string {
   if (!accountsEnabled) return `<div class="topbar2">${who}${help}</div>`;
   const rank = `<a class="icon-btn" href="#/ranking" aria-label="Ranking">${ICON_TROPHY}</a>`;
   const login = acc
-    ? `<span class="chalk-chip" title="Your chalk">${CHALK_ICO}${getWallet()?.chalk ?? '…'}</span><a class="icon-btn" href="#/profile" aria-label="Profile and settings" title="Profile and settings">${ICON_GEAR}</a>`
+    ? `<span class="chip-wrap"><button class="chalk-chip" data-action="chalk-pop" aria-expanded="${chalkPop.open}" title="Your latest chalk">${CHALK_ICO}${getWallet()?.chalk ?? '…'}</button>${chalkPop.open ? chalkPopHtml() : ''}</span><a class="icon-btn" href="#/profile" aria-label="Profile and settings" title="Profile and settings">${ICON_GEAR}</a>`
     : '<button class="btn small blue" data-action="view-login">Log in</button>';
   return acc ? `<div class="topbar2">${who}${login}${rank}${help}</div>` : `<div class="topbar2">${who}${rank}${help}${login}</div>`;
 }
@@ -2087,6 +2138,7 @@ async function menuAction(action: string, el?: HTMLElement) {
 let room: Room | null = null;
 
 function route() {
+  chalkPop.open = false;
   const m = location.hash.match(/^#\/r\/([A-Za-z0-9]{4,8})$/);
   if (location.hash === '#/solo') {
     if (room?.solo) return;
@@ -2146,6 +2198,7 @@ function loop(now: number) {
 
 const overlay = $('overlay');
 overlay.addEventListener('click', (e) => {
+  if (chalkPop.open && !(e.target as HTMLElement).closest('.chip-wrap')) closeChalkPop();
   if (!room && (e.target as HTMLElement).classList?.contains('sheet-wrap')) {
     location.hash = '#/';
     return;
@@ -2158,6 +2211,7 @@ overlay.addEventListener('click', (e) => {
 });
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || room) return;
+  if (closeChalkPop()) return;
   if (/^#\/(climber|profile|ranking|info\/)/.test(location.hash)) {
     e.preventDefault();
     location.hash = '#/';
