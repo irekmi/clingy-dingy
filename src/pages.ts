@@ -13,7 +13,7 @@ interface Page {
 }
 
 const PAGES: Record<string, Page> = {
-  'jak-grac': {
+  'how-to-play': {
     title: 'How to play',
     body: `
       <p>Clingy Dingy is a fast timed climbing game. The first to reach the summit (${CFG.holds} holds) wins.</p>
@@ -32,14 +32,14 @@ const PAGES: Record<string, Page> = {
       <h3>Account and rankings</h3>
       <p>You can play as a guest or create a free account. Only logged-in players' times make it into the global ranking. The room ranking shows the best times of a series of rematches in that room.</p>`,
   },
-  'o-grze': {
+  'about': {
     title: 'About',
     body: `
       <p><b>Clingy Dingy</b> is a free browser game for 2–${MAX_PLAYERS} players: climbers race on parallel walls and everyone sees the others' progress live.</p>
       <p>It runs in the browser on desktop and mobile, with nothing to install. Results are verified on the server so the ranking stays fair.</p>
-      <p>The game is under active development. Send ideas and feedback through the <a href="#/info/kontakt">Contact</a> page.</p>`,
+      <p>The game is under active development. Send ideas and feedback through the <a href="#/info/contact">Contact</a> page.</p>`,
   },
-  prywatnosc: {
+  privacy: {
     title: 'Privacy policy',
     body: `
       <p>Effective 17 November 2026. This page describes what data the Clingy Dingy game collects and why.</p>
@@ -54,9 +54,9 @@ const PAGES: Record<string, Page> = {
       <h3>Ads and cookies</h3>
       <p>The game may show Google AdSense ads. Google and its partners may use cookies and similar technologies to serve and measure ads (including personalised ads). You give or refuse consent to advertising cookies in the dialog shown on your first visit and can change it later. More: <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener">how Google uses data</a>.</p>
       <h3>Your rights</h3>
-      <p>You have the right to access, correct and delete your data (including your whole account) and to lodge a complaint with your data protection authority. To use these rights, write to the address on the <a href="#/info/kontakt">Contact</a> page.</p>`,
+      <p>You have the right to access, correct and delete your data (including your whole account) and to lodge a complaint with your data protection authority. To use these rights, write to the address on the <a href="#/info/contact">Contact</a> page.</p>`,
   },
-  kontakt: {
+  contact: {
     title: 'Contact',
     body: HAS_CONTACT
       ? `
@@ -68,10 +68,10 @@ const PAGES: Record<string, Page> = {
 };
 
 export const INFO_LINKS: [string, string][] = [
-  ['jak-grac', 'How to play'],
-  ['o-grze', 'About'],
-  ['prywatnosc', 'Privacy'],
-  ['kontakt', 'Contact'],
+  ['how-to-play', 'How to play'],
+  ['about', 'About'],
+  ['privacy', 'Privacy'],
+  ['contact', 'Contact'],
 ];
 
 export const isInfoPage = (slug: string) => slug in PAGES;

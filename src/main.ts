@@ -1274,7 +1274,7 @@ const menu = {
 function topbarHtml(): string {
   if (!accountsEnabled) return '';
   const acc = getAccount();
-  const how = '<a class="btn ghost small" href="#/info/jak-grac">How to play</a>';
+  const how = '<a class="btn ghost small" href="#/info/how-to-play">How to play</a>';
   if (acc) {
     return `<nav class="topbar" aria-label="Account">
       <span class="welcome">Welcome, <b>${esc(acc.nick)}</b></span>
@@ -1292,7 +1292,7 @@ function topbarHtml(): string {
 function topbar2Html(): string {
   const acc = getAccount();
   const who = `<span class="who2">${ava(0, true)}${esc(acc?.nick ?? getNick())}${acc ? '' : '<i>GUEST</i>'}</span>`;
-  const help = `<a class="icon-btn" href="#/info/jak-grac" aria-label="How to play">${ICON_HELP}</a>`;
+  const help = `<a class="icon-btn" href="#/info/how-to-play" aria-label="How to play">${ICON_HELP}</a>`;
   if (!accountsEnabled) return `<div class="topbar2">${who}${help}</div>`;
   const rank = `<button class="icon-btn" data-action="view-ranking" aria-label="Ranking">${ICON_TROPHY}</button>`;
   const login = acc
@@ -1302,7 +1302,7 @@ function topbar2Html(): string {
 }
 
 function footPillHtml(): string {
-  const links = INFO_LINKS.filter(([slug]) => slug !== 'jak-grac')
+  const links = INFO_LINKS.filter(([slug]) => slug !== 'how-to-play')
     .map(([slug, title]) => `<a href="#/info/${slug}">${title}</a>`)
     .join('');
   return `<div class="foot-pill"><span class="online${USE_SUPABASE ? '' : ' off'}">${USE_SUPABASE ? 'Online' : 'Local mode'}</span>${links}</div>`;
