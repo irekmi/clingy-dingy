@@ -17,6 +17,13 @@ import {
 } from '@sim';
 import {
   accountPending,
+  fetchFastest,
+  fetchMatchReward,
+  fetchMyWins,
+  fetchProfileData,
+  fetchWins,
+  type ProfileData,
+  type RankRow,
   buyCelebration,
   CELEB_PRICE,
   equipCelebration,
@@ -28,8 +35,6 @@ import {
   saveOutfitRemote,
   accountsEnabled,
   changeNick,
-  fetchHistory,
-  fetchLeaderboard,
   fetchMyBest,
   getAccount,
   initAccounts,
@@ -341,6 +346,8 @@ class Room {
   private starting = false;
   private finishAt = 0;
   private soloRes: { record: boolean; prevBest: number | null; stats: SoloStats } | null = null;
+  private reward: number | null = null;
+  private rewardState: 'off' | 'wait' | 'done' = 'off';
   /** outfits of the others (from Presence, sanitized); kept after a player leaves */
   private outfits = new Map<string, Outfit | null>();
   private celebs = new Map<string, Celebration>();
@@ -510,6 +517,8 @@ class Room {
     this.myMs = null;
     this.verify = 'off';
     this.myRecord = null;
+    this.reward = null;
+    this.rewardState = 'off';
     this.opps = new Map(
       ids.filter((id) => id !== this.me.id).map((id) => [id, freshOpp(this.players.find((x) => x.id === id)?.nick ?? '???')]),
     );
@@ -636,7 +645,11 @@ class Room {
           this.verify = !r.valid ? 'bad' : r.suspect ? 'suspect' : 'ok';
           const acc = getAccount();
           if (r.ranked && acc) this.myRecord = await fetchMyBest(acc.userId).catch(() => null);
-          if (acc && r.chalkAwarded) void refreshWallet().catch(() => {});
+          if (acc && r.chalkAwarded) {
+            this.reward = r.chalkAwarded;
+            this.rewardState = 'done';
+            void refreshWallet().catch(() => {});
+          }
         })
         .catch(() => (this.verify = 'error'))
         .finally(() => this.refresh());
@@ -650,6 +663,7 @@ class Room {
     if (this.solo && performance.now() - this.finishAt < 2200) return; // let the climber celebrate first
     if (![...this.opps.values()].every((o) => o.ms !== null || o.left)) return;
     this.phase = 'results';
+    window.setTimeout(() => this.startRewardPoll(), 0);
     // ranking pokoju (sesja): najlepszy czas, wygrane, rozegrane rundy
     const st = this.standings();
     st.forEach((s, i) => {
@@ -1102,6 +1116,44 @@ class Room {
     return this.phase === 'lobby' || this.phase === 'results';
   }
 
+  /** the chalk row on the duel results (amount only from the server) */
+  private rewardRowHtml(st: Standing[]): string {
+    if (!USE_SUPABASE) return '';
+    const n = st.filter((x) => x.valid).length;
+    const prize = 10 + 5 * Math.max(0, n - 2);
+    if (st[0]?.me && st[0].valid && n >= 2) {
+      if (!getAccount()) return `<div class="reward-row win">${CHALK_ICO}<span>A win here is worth +${prize} chalk – log in to collect it.</span><b>+0</b></div>`;
+      const v = this.reward !== null ? `+${this.reward}` : this.rewardState === 'done' ? '+0' : '…';
+      return `<div class="reward-row win">${CHALK_ICO}<span>Win reward · ${n} climbers</span><b>${v}</b></div>`;
+    }
+    return `<div class="reward-row">${CHALK_ICO}<span>Only the winner earns chalk – get them in the rematch!</span><b>+0</b></div>`;
+  }
+
+  /** the winner's reward may be recorded by another player's submit: read it from my ledger */
+  private startRewardPoll() {
+    if (!USE_SUPABASE || this.solo || !getAccount() || this.rewardState !== 'off') return;
+    const st = this.standings();
+    if (!st[0]?.me || !st[0].valid || st.filter((x) => x.valid).length < 2) return;
+    this.rewardState = 'wait';
+    const match = this.matchId;
+    let tries = 0;
+    const tick = async () => {
+      if (this.dead || this.matchId !== match || this.rewardState !== 'wait') return;
+      const v = await fetchMatchReward(match).catch(() => null);
+      if (this.dead || this.matchId !== match) return;
+      if (v !== null) {
+        this.reward = v;
+        this.rewardState = 'done';
+        void refreshWallet().catch(() => {});
+        this.refresh();
+      } else if (++tries >= 10) {
+        this.rewardState = 'done';
+        this.refresh();
+      } else window.setTimeout(tick, 1500);
+    };
+    window.setTimeout(tick, 800);
+  }
+
   private verifyPill(): string {
     if (!USE_SUPABASE) return '';
     switch (this.verify) {
@@ -1217,12 +1269,12 @@ class Room {
         <div class="b-wrap">
           <div class="result-banner ${cls}">${label}</div>
           <div class="b-card has-banner" style="gap:8px">
-            ${rows}${tally}
+            ${rows}${this.rewardRowHtml(st)}${tally}
             <div class="res-actions">
               ${readyBtn('Rematch', `<span class="pill dark" style="margin-left:10px">${readyN}/${a.length} ready</span>`) || ''}
               <button class="btn ghost" data-action="leave">Leave</button>
             </div>
-            ${guestNote('Your time counts in this room, but not in the global ranking.')}
+            ${guestNote("Guests don't earn chalk and don't count in the global ranking.")}
             ${acct ? `<p class="room-status">${acct}</p>` : ''}
           </div>
         </div></div>`;
@@ -1255,9 +1307,10 @@ class Room {
           <div class="room-code"><div><small>ROOM CODE</small><b>${esc(this.code)}</b></div><button data-action="copy">Copy link</button></div>
           <div class="slots" aria-label="Players (${a.length}/${MAX_PLAYERS})">${slots}</div>
           <p class="room-status${go ? ' go' : ''}">${status}</p>
+          ${USE_SUPABASE && a.length >= 2 ? `<p class="room-status"><span class="pill prize">${CHALK_ICO}Winner +${10 + 5 * (a.length - 2)}</span></p>` : ''}
           ${extra.map((x) => `<p class="room-status">${x}</p>`).join('')}
           ${readyBtn("I'm ready")}
-          ${guestNote('As a guest you race, but your time won\'t enter the global ranking.')}
+          ${guestNote('As a guest you race, but you don\'t earn chalk or enter the ranking.')}
         </div>
       </div></div>`;
   }
@@ -1510,6 +1563,10 @@ function editorAction(action: string, el?: HTMLElement): boolean {
     case 'ed-back':
       location.hash = '#/';
       return true;
+    case 'rk-tab':
+      screens.rankTab = el?.dataset.tab === 'wins' ? 'wins' : 'fast';
+      renderRanking();
+      return true;
   }
   return false;
 }
@@ -1540,6 +1597,176 @@ function drawEditorPreview(now: number) {
     const tctx = fitCanvas(t);
     if (tctx) drawClimberPreview(tctx, t.clientWidth, t.clientHeight + 6, editor.outfit, 0, c, now);
   });
+}
+
+// ---------- ranking (#/ranking) i profil (#/profile) ----------
+
+const screens = {
+  rankTab: 'fast' as 'fast' | 'wins',
+  fast: null as RankRow[] | null,
+  wins: null as RankRow[] | null,
+  myWins: null as number | null,
+  myBest: null as { best: number | null; place: number | null } | null,
+  rankErr: '',
+  profile: null as ProfileData | null,
+  profileErr: '',
+};
+
+const topbarScreen = (title: string, right = '') =>
+  `<div class="topbar2"><button class="btn small ghost" data-action="ed-back">← Menu</button><span class="ed-title">${title}</span>${right || '<span class="topbar-spacer"></span>'}</div>`;
+
+function rankRowHtml(pos: number | null, r: { nick: string; outfit: Outfit | null }, value: string, mine: boolean): string {
+  const posCls = pos === 1 ? '' : pos === 2 || pos === 3 ? ' silver' : '';
+  return `<div class="rank-row${pos === 1 ? ' first' : ''}${mine ? ' mine' : ''}"><span class="pos${posCls}">${pos ?? '–'}</span>${ava(((pos ?? 1) - 1) % 6, true, r.outfit)}<span class="nm">${esc(r.nick)}${mine ? ' (you)' : ''}</span><span class="t">${value}</span></div>`;
+}
+
+function rankingHtml(): string {
+  const acc = getAccount();
+  const fast = screens.rankTab === 'fast';
+  const rows = fast ? screens.fast : screens.wins;
+  const fmt = (v: number) => (fast ? `${secs(v)} s` : `${v} ${v === 1 ? 'win' : 'wins'}`);
+  let list: string;
+  if (screens.rankErr) list = `<p class="room-status err">${esc(screens.rankErr)}</p>`;
+  else if (!rows) list = '<p class="room-status">Loading…</p>';
+  else if (!rows.length) list = `<p class="room-status">${fast ? 'No verified times yet – be the first!' : 'No room wins yet – win a race with friends!'}</p>`;
+  else {
+    const myIdx = acc ? rows.findIndex((r) => r.user_id === acc.userId) : -1;
+    const top = rows.slice(0, 7).map((r, i) => rankRowHtml(i + 1, r, fmt(r.value), i === myIdx));
+    if (acc && myIdx >= 7) top.push('<div class="rank-gap" aria-hidden="true">⋮</div>', rankRowHtml(myIdx + 1, rows[myIdx], fmt(rows[myIdx].value), true));
+    else if (acc && myIdx < 0) {
+      const v = fast ? screens.myBest?.best ?? null : screens.myWins;
+      if (v) top.push('<div class="rank-gap" aria-hidden="true">⋮</div>', rankRowHtml(fast ? screens.myBest?.place ?? null : null, { nick: acc.nick, outfit: getMyOutfit() }, fmt(v), true));
+    }
+    list = `<div class="rank-list">${top.join('')}</div>`;
+  }
+  return `<div class="dim"></div><div class="studio menu2">
+    ${topbarScreen('RANKING', chalkChip())}
+    <div class="b-wrap rank-wrap"><div class="b-card">
+      <div class="seg" role="tablist"><button role="tab" aria-selected="${fast}" data-action="rk-tab" data-tab="fast">FASTEST</button><button role="tab" aria-selected="${!fast}" data-action="rk-tab" data-tab="wins">MOST WINS</button></div>
+      <p class="res-label" style="text-align:left">${fast ? 'Best verified time per climber · solo and rooms' : 'Verified room wins · every win also earns chalk'}</p>
+      ${list}
+      ${guestNote('Log in to appear in the ranking.')}
+    </div></div></div>`;
+}
+
+function renderRanking() {
+  paintOverlay(rankingHtml(), 'ranking');
+}
+
+async function openRankingScreen() {
+  screens.rankErr = '';
+  renderRanking();
+  const acc = getAccount();
+  try {
+    const [fast, wins, myBest, myWins] = await Promise.all([
+      fetchFastest(),
+      fetchWins(),
+      acc ? fetchMyBest(acc.userId) : Promise.resolve(null),
+      acc ? fetchMyWins() : Promise.resolve(null),
+    ]);
+    Object.assign(screens, { fast, wins, myBest, myWins });
+  } catch (e) {
+    screens.rankErr = plError(e);
+  }
+  if (location.hash === '#/ranking') renderRanking();
+}
+
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const days = Math.round((new Date(today.toDateString()).getTime() - new Date(d.toDateString()).getTime()) / 86400000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yest.';
+  if (days < 7) return d.toLocaleDateString('en-GB', { weekday: 'short' });
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+}
+
+function shortEmail(e: string): string {
+  const [user, domain] = e.split('@');
+  if (!domain) return e;
+  return `${user.length > 3 ? user.slice(0, 3) + '…' : user}@${domain}`;
+}
+
+function profileHtml(): string {
+  const acc = getAccount();
+  if (!acc) {
+    return `<div class="dim"></div><div class="studio menu2">${topbarScreen('YOUR PROFILE')}
+      <div class="b-wrap"><div class="b-card"><p class="room-status">Log in to see your profile.</p><button class="btn blue" data-action="ed-login">Log in</button></div></div></div>`;
+  }
+  const w = getWallet();
+  const p = screens.profile;
+  const h = p?.history ?? [];
+  const room = h.filter((r) => r.players > 1 && r.valid);
+  const wins = room.filter((r) => r.won).length;
+  const stats = p
+    ? `<div class="stat-grid">
+        <div><b>${wins}</b><small>room wins</small></div>
+        <div><b>${room.length ? Math.round((wins / room.length) * 100) + '%' : '—'}</b><small>win rate</small></div>
+        <div><b>${p.best.best === null ? '—' : secs(p.best.best)}</b><small>best time${p.best.place ? ` · #${p.best.place}` : ''}</small></div>
+        <div><b>${h.filter((r) => r.valid).length}</b><small>climbs</small></div>
+      </div>`
+    : `<p class="room-status">${screens.profileErr ? `<span class="err">${esc(screens.profileErr)}</span>` : 'Loading…'}</p>`;
+  const owned = CELEBRATIONS.filter((c) => ownsCeleb(c)).length;
+  const celebs = CELEBRATIONS.map((c) => {
+    const own = ownsCeleb(c);
+    const eq = myCelebration() === c;
+    return `<div class="cel${eq ? ' eq' : ''}${own ? '' : ' locked'}"><span class="thumb"><canvas class="celeb-cv" data-c="${c}"></canvas>${own ? '' : `<span class="lock">${LOCK}</span>`}</span>
+      <span>${eq ? '★ ' : ''}${CELEB_NAMES[c]}</span>${own ? '' : `<span class="tag price">${CHALK_ICO}${CELEB_PRICE}</span>`}</div>`;
+  }).join('');
+  const races = p
+    ? h.length
+      ? h
+          .slice(0, 6)
+          .map((r) => {
+            const pill = !r.valid ? '<span class="pill bad">rejected</span>' : r.players <= 1 ? '<span class="pill solo">solo</span>' : r.won ? '<span class="pill best">1st</span>' : '<span class="pill muted">lost</span>';
+            const gain = p.rewards.get(r.match_id);
+            return `<div class="history-row"><span class="when">${dayLabel(r.created_at)}</span><span class="mode">${pill} ${r.players > 1 ? `Room · ${r.players} climbers` : 'Solo run'}</span><span class="tm">${r.valid && r.verified_ms !== null ? secs(r.verified_ms) + ' s' : '—'}</span><span class="gain${gain ? '' : ' none'}">${gain ? '+' + gain : '–'}</span></div>`;
+          })
+          .join('')
+      : '<p class="room-status">No races yet – play one and it will show up here.</p>'
+    : '';
+  const err = menu.error ? `<p class="win-note err">${esc(menu.error)}</p>` : '';
+  const note = menu.note ? `<p class="win-note ok">${esc(menu.note)}</p>` : '';
+  return `<div class="dim"></div><div class="studio editor-wrap">
+    ${topbarScreen('YOUR PROFILE', '<button class="btn small orange" data-action="logout">Log out</button>')}
+    <div class="profile">
+      <div class="b-card">
+        <div class="prof-head">${ava(0, false, getMyOutfit()).replace('class="ava"', 'class="ava lg"')}<div><b>${esc(acc.nick)}</b><small>${esc(shortEmail(acc.email))}</small>${p?.since ? `<small>since ${new Date(p.since).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</small>` : ''}</div></div>
+        <a class="btn blue small" href="#/climber">Edit climber</a>
+        <div class="chalk-box">${CHALK_ICO}<div><small>CHALK</small><b>${w ? w.chalk : '…'}</b></div><span>+10 per win<br>+5 per extra climber</span></div>
+        ${stats}
+        <div class="sec-title"><span>SETTINGS</span></div>
+        <label class="nick-row">Nickname <input id="f-nick" maxlength="16" value="${esc(menu.nick || acc.nick)}" data-enter="save-nick"></label>
+        <div class="res-actions"><button class="btn small blue" data-action="save-nick" ${menu.busy ? 'disabled' : ''}>Save nickname</button><button class="btn small ghost" data-action="send-reset" title="We e-mail you a link">Change password</button></div>
+        ${err}${note}
+      </div>
+      <div class="b-card">
+        <div class="sec-title"><span>CELEBRATIONS · ${owned} OF ${CELEBRATIONS.length}</span><a href="#/climber/victory">Get more →</a></div>
+        <div class="celeb-row">${celebs}</div>
+        <div class="sec-title"><span>RECENT RACES</span></div>
+        <div class="history">${races}</div>
+      </div>
+    </div></div>`;
+}
+
+function renderProfile() {
+  paintOverlay(profileHtml(), 'profile');
+}
+
+async function openProfileScreen() {
+  screens.profile = null;
+  screens.profileErr = '';
+  menu.error = menu.note = menu.nick = '';
+  editor.outfit = { ...(getMyOutfit() ?? DEFAULT_OUTFIT) }; // the celebration thumbnails wear my outfit
+  renderProfile();
+  if (!getAccount()) return;
+  void refreshWallet().catch(() => {});
+  try {
+    screens.profile = await fetchProfileData();
+  } catch (e) {
+    screens.profileErr = plError(e);
+  }
+  if (location.hash === '#/profile') renderProfile();
 }
 
 // ---------- menu, konto, ranking ----------
@@ -1584,9 +1811,9 @@ function topbar2Html(): string {
   const who = `<a class="who2" href="#/climber" title="Edit your climber">${ava(0, true, getMyOutfit())}${esc(acc?.nick ?? getNick())}${acc ? '' : '<i>GUEST</i>'}<span class="pen">${PEN}</span></a>`;
   const help = `<a class="icon-btn" href="#/info/how-to-play" aria-label="How to play">${ICON_HELP}</a>`;
   if (!accountsEnabled) return `<div class="topbar2">${who}${help}</div>`;
-  const rank = `<button class="icon-btn" data-action="view-ranking" aria-label="Ranking">${ICON_TROPHY}</button>`;
+  const rank = `<a class="icon-btn" href="#/ranking" aria-label="Ranking">${ICON_TROPHY}</a>`;
   const login = acc
-    ? '<button class="btn small blue" data-action="view-account">My account</button>'
+    ? `<a class="chalk-chip" href="#/profile" title="Your profile">${CHALK_ICO}${getWallet()?.chalk ?? '…'}</a>`
     : '<button class="btn small blue" data-action="view-login">Log in</button>';
   return `<div class="topbar2">${who}${rank}${help}${login}</div>`;
 }
@@ -1596,54 +1823,6 @@ function footPillHtml(): string {
     .map(([slug, title]) => `<a href="#/info/${slug}">${title}</a>`)
     .join('');
   return `<div class="foot-pill"><span class="online${USE_SUPABASE ? '' : ' off'}">${USE_SUPABASE ? 'Online' : 'Local mode'}</span>${links}</div>`;
-}
-
-function dateStr(iso: string) {
-  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
-
-function accountHtml(): string {
-  const acc = getAccount();
-  if (!acc) return '';
-  const rows = menu.history;
-  const valid = (rows ?? []).filter((r) => r.valid && r.verified_ms !== null);
-  const ranked = valid.filter((r) => !r.suspect);
-  const best = ranked.length ? Math.min(...ranked.map((r) => r.verified_ms!)) : null;
-  const wins = (rows ?? []).filter((r) => r.won).length;
-  const stats = rows
-    ? `<div class="stats">
-        <div><b>${valid.length}</b><small>rounds</small></div>
-        <div><b>${wins}</b><small>wins</small></div>
-        <div><b>${best === null ? '—' : secs(best)}</b><small>best (s)</small></div>
-        <div><b>${menu.myBest?.place ? '#' + menu.myBest.place : '—'}</b><small>rank</small></div>
-      </div>`
-    : '';
-  const table = menu.historyError
-    ? `<p class="empty err">${esc(menu.historyError)}</p>`
-    : rows === null
-      ? '<p class="empty">Loading…</p>'
-      : rows.length === 0
-        ? '<p class="empty">No online rounds yet. Play one and it will show up here.</p>'
-        : `<table>${rows
-            .map((r) => {
-              const status = !r.valid ? 'rejected' : r.suspect ? 'under review' : r.won ? 'win' : r.players > 1 ? `of ${r.players} players` : '';
-              return `<tr class="${r.won ? 'gold' : ''}"><td class="s">${dateStr(r.created_at)}</td><td>${esc(r.room_code)}</td>
-                <td class="s">${status}</td><td class="t">${r.valid && r.verified_ms !== null ? secs(r.verified_ms) + ' s' : '—'}</td></tr>`;
-            })
-            .join('')}</table>`;
-  const err = menu.error ? `<p class="msg err">${esc(menu.error)}</p>` : '';
-  const note = menu.note ? `<p class="msg ok">${esc(menu.note)}</p>` : '';
-  return `<div class="form wide2" role="region" aria-label="My account">
-      <h2>My account</h2>
-      <p class="msg">${esc(acc.email)}</p>
-      ${stats}
-      <label>Nickname (shown in the ranking)
-        <span class="inline"><input id="f-nick" maxlength="16" value="${esc(menu.nick || acc.nick)}" data-enter="save-nick"><button class="btn blue small" data-action="save-nick" ${menu.busy ? 'disabled' : ''}>Save</button></span>
-      </label>
-      ${err}${note}
-      <div class="tbl"><h2>RECENT ROUNDS</h2>${table}</div>
-      <div class="row2"><button class="btn small blue" data-action="send-reset" title="We e-mail you a link">Change password</button><button class="btn small orange" data-action="logout">Log out</button><button class="btn small ghost" data-action="view-main">Back</button></div>
-    </div>`;
 }
 
 function menuHtml(): string {
@@ -1700,32 +1879,6 @@ function menuHtml(): string {
       <button class="btn ghost" data-action="view-main">Back to menu</button>
     </div>`);
   }
-  if (menu.view === 'account') {
-    return wrap(acc ? accountHtml() : '<div class="form"><p class="msg">Log in to see your account.</p><button class="btn blue" data-action="view-login">Log in</button></div>');
-  }
-  if (menu.view === 'ranking') {
-    const rows = menu.ranking;
-    const table = menu.rankingError
-      ? `<p class="empty err">${esc(menu.rankingError)}</p>`
-      : rows === null
-        ? '<p class="empty">Loading…</p>'
-        : rows.length === 0
-          ? '<p class="empty">The ranking is still empty – be the first!</p>'
-          : `<table>${rows
-              .map(
-                (r, i) => `<tr class="${acc?.userId === r.user_id ? 'mine' : ''} ${i < 3 ? 'gold' : ''}"><td class="pl">${i + 1}.</td><td>${esc(r.nick)}</td>
-                <td class="s">${new Date(r.achieved_at).toLocaleDateString('en-GB')}</td><td class="t">${secs(r.best_ms)} s</td></tr>`,
-              )
-              .join('')}</table>`;
-    const mine = acc
-      ? menu.myBest?.best != null
-        ? `<p class="hint small">Your record: <b>${secs(menu.myBest.best)} s</b>${menu.myBest.place ? ` · rank #${menu.myBest.place}` : ''}</p>`
-        : '<p class="hint small">You have no verified time yet – play a round!</p>'
-      : '<p class="hint small">Log in to get your times into the ranking.</p>';
-    return wrap(`<div class="tbl wide"><h2>GLOBAL RANKING · BEST TIMES</h2>${table}</div>${mine}
-      <button class="btn ghost" data-action="view-main">Back</button>`);
-  }
-
   const rec = getSolo();
   return wrap(
     `
@@ -1740,7 +1893,7 @@ function menuHtml(): string {
           <input id="join-code" placeholder="CODE" maxlength="8" aria-label="Room code" autocomplete="off" spellcheck="false" data-enter="join">
           <button class="btn orange" data-action="join">Join</button>
         </div>
-        ${guestNote("Guest times don't count in the ranking.")}
+        ${guestNote("Guests don't earn chalk and don't count in the ranking.")}
       </div>
     </div>`,
     true,
@@ -1748,7 +1901,10 @@ function menuHtml(): string {
 }
 
 function renderMenu() {
+  if (location.hash.startsWith('#/info/')) return;
   if (location.hash.startsWith('#/climber')) return renderEditor();
+  if (location.hash === '#/profile') return renderProfile();
+  if (location.hash === '#/ranking') return renderRanking();
   if (!room && !accountPending()) paintOverlay(menuHtml(), 'menu-' + menu.view); // wait for a saved login, no guest flash
 }
 
@@ -1758,40 +1914,6 @@ function readNick() {
   if (getAccount()) return;
   const n = cleanNick(val('nick')) || getNick();
   saveNick(n);
-}
-
-async function openRanking() {
-  menu.view = 'ranking';
-  menu.ranking = null;
-  menu.rankingError = '';
-  menu.myBest = null;
-  renderMenu();
-  try {
-    menu.ranking = await fetchLeaderboard(20);
-    const acc = getAccount();
-    if (acc) menu.myBest = await fetchMyBest(acc.userId);
-  } catch (e) {
-    menu.rankingError = plError(e);
-  }
-  if (menu.view === 'ranking') renderMenu();
-}
-
-async function openAccount() {
-  menu.view = 'account';
-  menu.history = null;
-  menu.historyError = '';
-  menu.nick = '';
-  menu.error = '';
-  menu.note = '';
-  renderMenu();
-  const acc = getAccount();
-  if (!acc) return;
-  try {
-    [menu.history, menu.myBest] = await Promise.all([fetchHistory(30), fetchMyBest(acc.userId)]);
-  } catch (e) {
-    menu.historyError = plError(e);
-  }
-  if (menu.view === 'account') renderMenu();
 }
 
 async function menuAction(action: string, el?: HTMLElement) {
@@ -1830,15 +1952,16 @@ async function menuAction(action: string, el?: HTMLElement) {
       renderMenu();
       return;
     case 'view-ranking':
-      void openRanking();
+      location.hash = '#/ranking';
       return;
     case 'view-account':
-      void openAccount();
+      location.hash = '#/profile';
       return;
     case 'logout':
       await signOut();
       menu.view = 'main';
-      renderMenu();
+      if (location.hash === '#/profile') location.hash = '#/';
+      else renderMenu();
       return;
     case 'do-login': {
       menu.email = val('f-email').trim();
@@ -1973,6 +2096,11 @@ function route() {
     room?.destroy();
     room = new Room(code);
     if (import.meta.env.DEV) (window as unknown as { __room: Room }).__room = room; // tylko do debugowania
+  } else if (location.hash === '#/ranking' || location.hash === '#/profile') {
+    room?.destroy();
+    room = null;
+    if (location.hash === '#/ranking') void openRankingScreen();
+    else void openProfileScreen();
   } else if (location.hash === '#/climber' || location.hash === '#/climber/victory') {
     room?.destroy();
     room = null;
@@ -2037,7 +2165,7 @@ overlay.addEventListener('change', (e) => {
 });
 
 onAccountChange(() => {
-  if (!room && (menu.view === 'main' || menu.view === 'account')) renderMenu();
+  if (!room && (menu.view === 'main' || location.hash === '#/ranking' || location.hash === '#/profile')) renderMenu();
 });
 onPasswordRecovery(() => {
   menu.view = 'recovery';
@@ -2046,7 +2174,7 @@ onPasswordRecovery(() => {
 });
 onAccountReady(() => (room ? room.refresh() : location.hash.startsWith('#/info/') ? route() : renderMenu()));
 onWalletChange(() => {
-  if (!room && location.hash.startsWith('#/climber')) renderEditor();
+  if (!room) renderMenu();
 });
 initAccounts();
 window.addEventListener('hashchange', route);

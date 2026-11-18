@@ -286,3 +286,67 @@ export async function fetchMatchReward(matchId: string): Promise<number | null> 
   const { data } = await getClient().from('chalk_ledger').select('delta').eq('match_id', matchId).eq('reason', 'win').maybeSingle();
   return data ? Number(data.delta) : null;
 }
+
+// ---------- ranking i profil ----------
+
+export interface RankRow {
+  user_id: string;
+  nick: string;
+  outfit: Outfit | null;
+  /** best time in ms (FASTEST) or number of wins (MOST WINS) */
+  value: number;
+}
+
+async function outfitsOf(ids: string[]): Promise<Map<string, Outfit | null>> {
+  const map = new Map<string, Outfit | null>();
+  if (!ids.length) return map;
+  const { data } = await getClient().from('profiles').select('id,outfit').in('id', ids);
+  for (const r of data ?? []) map.set(r.id as string, sanitizeOutfit(r.outfit));
+  return map;
+}
+
+/** best verified time per climber (top 100) */
+export async function fetchFastest(): Promise<RankRow[]> {
+  const rows = await fetchLeaderboard(100);
+  const outfits = await outfitsOf(rows.map((r) => r.user_id)).catch(() => new Map<string, Outfit | null>());
+  return rows.map((r) => ({ user_id: r.user_id, nick: r.nick, outfit: outfits.get(r.user_id) ?? null, value: r.best_ms }));
+}
+
+/** verified room wins per climber (top 100, the wins that earned chalk) */
+export async function fetchWins(): Promise<RankRow[]> {
+  const { data, error } = await getClient().from('leaderboard_wins').select('user_id,nick,outfit,wins').limit(100);
+  if (error) throw error;
+  return (data ?? []).map((r) => ({ user_id: r.user_id as string, nick: r.nick as string, outfit: sanitizeOutfit(r.outfit), value: Number(r.wins) || 0 }));
+}
+
+/** my wins (reward entries in my ledger) */
+export async function fetchMyWins(): Promise<number> {
+  if (!current) return 0;
+  const { count } = await getClient().from('chalk_ledger').select('id', { count: 'exact', head: true }).eq('reason', 'win');
+  return count ?? 0;
+}
+
+export interface ProfileData {
+  since: string | null;
+  history: HistoryRow[];
+  /** chalk won per match id */
+  rewards: Map<string, number>;
+  best: { best: number | null; place: number | null };
+}
+
+export async function fetchProfileData(): Promise<ProfileData> {
+  if (!current) throw new Error('not signed in');
+  const me = current;
+  const [prof, history, best] = await Promise.all([
+    getClient().from('profiles').select('created_at').eq('id', me.userId).maybeSingle(),
+    fetchHistory(200),
+    fetchMyBest(me.userId),
+  ]);
+  const rewards = new Map<string, number>();
+  const ids = history.slice(0, 30).map((h) => h.match_id).filter(Boolean);
+  if (ids.length) {
+    const { data } = await getClient().from('chalk_ledger').select('match_id,delta').eq('reason', 'win').in('match_id', ids);
+    for (const r of data ?? []) rewards.set(r.match_id as string, Number(r.delta) || 0);
+  }
+  return { since: (prof.data?.created_at as string | undefined) ?? null, history, rewards, best };
+}
