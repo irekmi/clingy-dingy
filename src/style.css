@@ -2394,3 +2394,17 @@ button.chalk-chip[aria-expanded='true'] { border-color: var(--gold); }
   .chalk-pop { position: fixed; top: calc(58px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; width: auto; }
   .chalk-pop::before { display: none; }
 }
+
+/* loaders */
+.spin {
+  display: inline-block; width: 0.95em; height: 0.95em; margin-right: 0.45em; vertical-align: -0.12em; flex: none;
+  border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.28); border-top-color: currentColor;
+  animation: spin 0.75s linear infinite;
+}
+.reward-row b .spin, .chalk-box b .spin, .chalk-chip .spin { margin-right: 0; }
+.boot-spin { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(20, 18, 26, 0.35); color: #fff; font-size: 34px; }
+.boot-spin .spin { margin: 0; border-width: 4px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation-duration: 2.4s; }
+}

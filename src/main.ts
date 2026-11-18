@@ -135,6 +135,8 @@ const svg = (inner: string, size = 20) =>
 const ICON_TROPHY = svg('<path d="M8 4h8v6a4 4 0 0 1-8 0z"/><path d="M8 6H4a3 3 0 0 0 4 4M16 6h4a3 3 0 0 1-4 4M12 14v4M8 20h8"/>');
 const ICON_HELP = svg('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>');
 const ICON_GEAR = svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>');
+/** a small loading spinner, shown wherever the player waits for data */
+const SPIN = '<span class="spin" aria-hidden="true"></span>';
 const ICON_INFO = svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>', 18);
 
 /** a note for guests (no session); nothing for a logged-in player */
@@ -1126,7 +1128,7 @@ class Room {
     const prize = 10 + 5 * Math.max(0, n - 2);
     if (st[0]?.me && st[0].valid && n >= 2) {
       if (!getAccount()) return `<div class="reward-row win">${CHALK_ICO}<span>A win here is worth +${prize} chalk – log in to collect it.</span><b>+0</b></div>`;
-      const v = this.reward !== null ? `+${this.reward}` : this.rewardState === 'done' ? '+0' : '…';
+      const v = this.reward !== null ? `+${this.reward}` : this.rewardState === 'done' ? '+0' : SPIN;
       return `<div class="reward-row win">${CHALK_ICO}<span>Win reward · ${n} climbers</span><b>${v}</b></div>`;
     }
     return `<div class="reward-row">${CHALK_ICO}<span>Only the winner earns chalk – get them in the rematch!</span><b>+0</b></div>`;
@@ -1169,7 +1171,7 @@ class Room {
       case 'error':
         return '<span class="pill bad">NOT SAVED</span>';
       default:
-        return '<span class="pill muted">CHECKING…</span>';
+        return `<span class="pill muted">${SPIN}CHECKING…</span>`;
     }
   }
 
@@ -1187,7 +1189,7 @@ class Room {
   private soloHtml(): string {
     const results = this.phase === 'results' && this.myMs !== null && this.soloRes;
     if (!results) {
-      return `<div class="dim"></div><div class="studio">${belka('solo run', ['PLAYERS', '1'])}<p class="hint">${this.error ? `<span class="err">${esc(this.error)}</span>` : 'Get ready…'}</p></div>`;
+      return `<div class="dim"></div><div class="studio">${belka('solo run', ['PLAYERS', '1'])}<p class="hint">${this.error ? `<span class="err">${esc(this.error)}</span>` : `${SPIN}Get ready…`}</p></div>`;
     }
     const r = this.soloRes!;
     const ms = this.myMs!;
@@ -1293,7 +1295,7 @@ class Room {
     }).join('');
     let status: string;
     let go = false;
-    if (!this.connected) status = 'Connecting…';
+    if (!this.connected) status = `${SPIN}Connecting…`;
     else if (full) status = `<span class="err">The room is full (max ${MAX_PLAYERS} players).</span>`;
     else if (alone) status = `Share the code or the link – up to ${MAX_PLAYERS - 1} friends can join.`;
     else if (readyN === a.length) {
@@ -1418,16 +1420,16 @@ function victoryActionHtml(): string {
     if (c === 'clap') return `<div class="win-action">${note("✓ Equipped – you'll do this after your next win.", 'ok')}</div>`;
     return `<div class="win-action">${note(accountsEnabled ? 'Log in to earn chalk from wins and unlock celebrations.' : 'Celebrations unlock with an online account.')}${accountsEnabled ? '<button class="btn blue" data-action="ed-login">Log in</button>' : ''}</div>`;
   }
-  if (!w) return `<div class="win-action">${note('Loading your chalk…')}</div>`;
+  if (!w) return `<div class="win-action">${note(`${SPIN}Loading your chalk…`)}</div>`;
   const dis = editor.busy ? 'disabled' : '';
   if (ownsCeleb(c)) {
     if (w.celebration === c) return `<div class="win-action">${extra || note("✓ Equipped – you'll do this after your next win.", 'ok')}</div>`;
-    return `<div class="win-action"><button class="btn blue" data-action="ed-equip" ${dis}>Equip ${esc(name)}</button>${extra}</div>`;
+    return `<div class="win-action"><button class="btn blue" data-action="ed-equip" ${dis}>${editor.busy ? SPIN : ''}Equip ${esc(name)}</button>${extra}</div>`;
   }
   if (w.chalk >= CELEB_PRICE) {
     if (editor.confirm) {
       return `<div class="win-action">${note(`Spend ${CELEB_PRICE} chalk on ${esc(name)}? You'll have ${w.chalk - CELEB_PRICE} left.`)}
-        <div class="res-actions"><button class="btn green" data-action="ed-buy" ${dis}>${editor.busy ? 'Unlocking…' : 'Unlock'}</button><button class="btn ghost" data-action="ed-cancel" ${dis}>Cancel</button></div>${extra}</div>`;
+        <div class="res-actions"><button class="btn green" data-action="ed-buy" ${dis}>${editor.busy ? `${SPIN}Unlocking…` : 'Unlock'}</button><button class="btn ghost" data-action="ed-cancel" ${dis}>Cancel</button></div>${extra}</div>`;
     }
     return `<div class="win-action"><button class="btn gold" data-action="ed-unlock">Unlock for ${CHALK_ICO} ${CELEB_PRICE}</button>${extra}</div>`;
   }
@@ -1635,7 +1637,7 @@ function rankingHtml(): string {
   const fmt = (v: number) => (fast ? `${secs(v)} s` : `${v} ${v === 1 ? 'win' : 'wins'}`);
   let list: string;
   if (screens.rankErr) list = `<p class="room-status err">${esc(screens.rankErr)}</p>`;
-  else if (!rows) list = '<p class="room-status">Loading…</p>';
+  else if (!rows) list = `<p class="room-status">${SPIN}Loading…</p>`;
   else if (!rows.length) list = `<p class="room-status">${fast ? 'No verified times yet – be the first!' : 'No room wins yet – win a race with friends!'}</p>`;
   else {
     const myIdx = acc ? rows.findIndex((r) => r.user_id === acc.userId) : -1;
@@ -1713,7 +1715,7 @@ function profileHtml(): string {
         <div><b>${p.best.best === null ? '—' : secs(p.best.best)}</b><small>best time${p.best.place ? ` · #${p.best.place}` : ''}</small></div>
         <div><b>${h.filter((r) => r.valid).length}</b><small>climbs</small></div>
       </div>`
-    : `<p class="room-status">${screens.profileErr ? `<span class="err">${esc(screens.profileErr)}</span>` : 'Loading…'}</p>`;
+    : `<p class="room-status">${screens.profileErr ? `<span class="err">${esc(screens.profileErr)}</span>` : `${SPIN}Loading…`}</p>`;
   const owned = CELEBRATIONS.filter((c) => ownsCeleb(c)).length;
   const celebs = CELEBRATIONS.map((c) => {
     const own = ownsCeleb(c);
@@ -1741,11 +1743,11 @@ function profileHtml(): string {
       <div class="b-card">
         <div class="prof-head">${ava(0, false, getMyOutfit()).replace('class="ava"', 'class="ava lg"')}<div><b>${esc(acc.nick)}</b><small>${esc(shortEmail(acc.email))}</small>${p?.since ? `<small>since ${new Date(p.since).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</small>` : ''}</div></div>
         <a class="btn blue small" href="#/climber">Edit climber</a>
-        <div class="chalk-box">${CHALK_ICO}<div><small>CHALK</small><b>${w ? w.chalk : '…'}</b></div><span>+10 per win<br>+5 per extra climber</span></div>
+        <div class="chalk-box">${CHALK_ICO}<div><small>CHALK</small><b>${w ? w.chalk : SPIN}</b></div><span>+10 per win<br>+5 per extra climber</span></div>
         ${stats}
         <div class="sec-title"><span>SETTINGS</span></div>
         <label class="nick-row">Nickname <input id="f-nick" maxlength="16" value="${esc(menu.nick || acc.nick)}" data-enter="save-nick"></label>
-        <div class="res-actions"><button class="btn small blue" data-action="save-nick" ${menu.busy ? 'disabled' : ''}>Save nickname</button><button class="btn small ghost" data-action="send-reset" title="We e-mail you a link">Change password</button></div>
+        <div class="res-actions"><button class="btn small blue" data-action="save-nick" ${menu.busy ? 'disabled' : ''}>${menu.busy ? SPIN : ''}Save nickname</button><button class="btn small ghost" data-action="send-reset" title="We e-mail you a link">Change password</button></div>
         ${err}${note}
       </div>
       <div class="b-card">
@@ -1820,7 +1822,7 @@ function chalkPopHtml(): string {
   const rows = chalkPop.rows;
   let body: string;
   if (chalkPop.err) body = `<p class="cp-empty err">${esc(chalkPop.err)}</p>`;
-  else if (!rows) body = '<p class="cp-empty">Loading…</p>';
+  else if (!rows) body = `<p class="cp-empty">${SPIN}Loading…</p>`;
   else if (!rows.length) body = '<p class="cp-empty">No chalk yet – win a room race to earn some.</p>';
   else
     body = rows
@@ -1867,7 +1869,7 @@ function topbar2Html(): string {
   if (!accountsEnabled) return `<div class="topbar2">${who}${help}</div>`;
   const rank = `<a class="icon-btn" href="#/ranking" aria-label="Ranking">${ICON_TROPHY}</a>`;
   const login = acc
-    ? `<span class="chip-wrap"><button class="chalk-chip" data-action="chalk-pop" aria-expanded="${chalkPop.open}" title="Your latest chalk">${CHALK_ICO}${getWallet()?.chalk ?? '…'}</button>${chalkPop.open ? chalkPopHtml() : ''}</span><a class="icon-btn" href="#/profile" aria-label="Profile and settings" title="Profile and settings">${ICON_GEAR}</a>`
+    ? `<span class="chip-wrap"><button class="chalk-chip" data-action="chalk-pop" aria-expanded="${chalkPop.open}" title="Your latest chalk">${CHALK_ICO}${getWallet()?.chalk ?? SPIN}</button>${chalkPop.open ? chalkPopHtml() : ''}</span><a class="icon-btn" href="#/profile" aria-label="Profile and settings" title="Profile and settings">${ICON_GEAR}</a>`
     : '<button class="btn small blue" data-action="view-login">Log in</button>';
   return acc ? `<div class="topbar2">${who}${login}${rank}${help}</div>` : `<div class="topbar2">${who}${rank}${help}${login}</div>`;
 }
@@ -1892,7 +1894,7 @@ function menuHtml(): string {
       <label>E-mail<input id="f-email" type="email" autocomplete="email" value="${esc(menu.email)}" data-enter="do-login"></label>
       <label>Password<input id="f-pass" type="password" autocomplete="current-password" data-enter="do-login"></label>
       ${err}${note}
-      <button class="btn blue" data-action="do-login" ${dis}>${menu.busy ? 'Logging in…' : 'Log in'}</button>
+      <button class="btn blue" data-action="do-login" ${dis}>${menu.busy ? `${SPIN}Logging in…` : 'Log in'}</button>
       <div class="row2"><button class="btn small blue" data-action="view-register">No account? Sign up</button><button class="btn small ghost" data-action="view-forgot">Forgot password</button><button class="btn small ghost" data-action="view-main">Back</button></div>
     </div>`);
   }
@@ -1902,7 +1904,7 @@ function menuHtml(): string {
       <p class="msg">Enter your account e-mail – we will send a link to set a new password.</p>
       <label>E-mail<input id="f-email" type="email" autocomplete="email" value="${esc(menu.email)}" data-enter="do-forgot"></label>
       ${err}${note}
-      <button class="btn blue" data-action="do-forgot" ${dis}>${menu.busy ? 'Sending…' : 'Send link'}</button>
+      <button class="btn blue" data-action="do-forgot" ${dis}>${menu.busy ? `${SPIN}Sending…` : 'Send link'}</button>
       <div class="row2"><button class="btn small ghost" data-action="view-login">Back to login</button></div>
     </div>`);
   }
@@ -1911,7 +1913,7 @@ function menuHtml(): string {
       <h2>Set a new password</h2>
       <label>New password (min. 6 characters)<input id="f-pass" type="password" autocomplete="new-password" data-enter="do-recovery"></label>
       ${err}
-      <button class="btn blue" data-action="do-recovery" ${dis}>${menu.busy ? 'Saving…' : 'Save password'}</button>
+      <button class="btn blue" data-action="do-recovery" ${dis}>${menu.busy ? `${SPIN}Saving…` : 'Save password'}</button>
     </div>`);
   }
   if (menu.view === 'register') {
@@ -1921,7 +1923,7 @@ function menuHtml(): string {
       <label>E-mail<input id="f-email" type="email" autocomplete="email" value="${esc(menu.email)}" data-enter="do-register"></label>
       <label>Password (min. 6 characters)<input id="f-pass" type="password" autocomplete="new-password" data-enter="do-register"></label>
       ${err}
-      <button class="btn blue" data-action="do-register" ${dis}>${menu.busy ? 'Creating…' : 'Create account'}</button>
+      <button class="btn blue" data-action="do-register" ${dis}>${menu.busy ? `${SPIN}Creating…` : 'Create account'}</button>
       <div class="row2"><button class="btn small blue" data-action="view-login">I have an account – log in</button><button class="btn small ghost" data-action="view-main">Back</button></div>
     </div>`);
   }
@@ -1959,7 +1961,10 @@ function renderMenu() {
   if (location.hash.startsWith('#/climber')) return renderEditor();
   if (location.hash === '#/profile') return renderProfile();
   if (location.hash === '#/ranking') return renderRanking();
-  if (!room && !accountPending()) paintOverlay(menuHtml(), 'menu-' + menu.view); // wait for a saved login, no guest flash
+  if (room) return;
+  // wait for a saved login (no guest flash), with a spinner meanwhile
+  if (accountPending()) paintOverlay(`<div class="boot-spin" role="status" aria-label="Loading">${SPIN}</div>`, 'boot');
+  else paintOverlay(menuHtml(), 'menu-' + menu.view);
 }
 
 const val = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value ?? '';
