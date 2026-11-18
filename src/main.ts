@@ -51,7 +51,7 @@ import {
   type LeaderRow,
 } from './account';
 import { setAdsVisible } from './ads';
-import { CELEBRATIONS, ClimbView, DEFAULT_OUTFIT, drawClimberPreview, MAX_PLAYERS, OUTFIT_OPTIONS, PLAYER_COLORS, PLAYER_HAIR, sanitizeOutfit, type Celebration, type Outfit } from './game/render';
+import { CELEBRATIONS, ClimbView, DEFAULT_OUTFIT, drawClimberPreview, MAX_PLAYERS, OUTFIT_OPTIONS, PLAYER_COLORS, PLAYER_HAIR, sanitizeOutfit, shade, type Celebration, type Outfit } from './game/render';
 import { getMyOutfit, OPTION_NAMES, PART_LABELS, saveMyOutfit } from './outfit';
 import { INFO_LINKS, infoHtml, isInfoPage } from './pages';
 import { LocalTransport } from './net/localTransport';
@@ -1370,14 +1370,17 @@ const ownsCeleb = (c: Celebration) => c === 'clap' || !!getWallet()?.owned.inclu
 
 /** a small head with the hair style, in the current hair and skin colours */
 function hairIcon(style: string, hair: string, skin: string): string {
-  const head = `<circle cx="18" cy="19" r="9" fill="${skin}"/>`;
-  const cap = `<path d="M8.5 17 Q8.5 8 18 8 Q27.5 8 27.5 17 Q23 12.5 18 12.5 Q13 12.5 8.5 17Z" fill="${hair}"/>`;
-  let extra = '';
-  if (style === 'pony') extra = `<ellipse cx="29" cy="13" rx="4.5" ry="3" fill="${hair}" transform="rotate(35 29 13)"/>`;
-  else if (style === 'curly')
-    extra = [[10, 13], [14, 9], [19, 8], [24, 9], [27, 13], [8, 18], [28, 18]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.6" fill="${hair}"/>`).join('');
-  else if (style === 'long') extra = `<path d="M8.5 16 Q7 26 10 31 L14 29 Q12 22 13 15Z M27.5 16 Q29 26 26 31 L22 29 Q24 22 23 15Z" fill="${hair}"/>`;
-  return `<svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true">${style === 'long' ? extra : ''}${head}${cap}${style === 'long' ? '' : extra}</svg>`;
+  const line = shade(hair, 0.45);
+  const curls =
+    style === 'curly'
+      ? [[11, 12], [15, 9], [21, 9], [25, 12], [27, 17], [9, 17]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.6" fill="${hair}"/>`).join('')
+      : '';
+  const neck = `<rect x="15" y="24" width="6" height="8" rx="2" fill="${skin}"/>`;
+  const ears = `<ellipse cx="9" cy="19" rx="2.2" ry="3" fill="${skin}"/><ellipse cx="27" cy="19" rx="2.2" ry="3" fill="${skin}"/>`;
+  const head = `<circle cx="18" cy="18" r="9" fill="${hair}" stroke="${line}" stroke-width="1.5"/>`;
+  const long = style === 'long' ? `<path d="M9 18 Q7 27 10 32 Q18 35 26 32 Q29 27 27 18Z" fill="${hair}" stroke="${line}" stroke-width="1.5"/>` : '';
+  const pony = style === 'pony' ? `<path d="M16.5 23 Q15 30 18 34 Q21 30 19.5 23Z" fill="${hair}" stroke="${line}" stroke-width="1.2"/>` : '';
+  return `<svg width="30" height="30" viewBox="0 0 36 36" aria-hidden="true">${curls}${neck}${ears}${head}${long}${pony}</svg>`;
 }
 
 function lookHtml(): string {
@@ -1446,8 +1449,8 @@ function editorHtml(): string {
   const nick = getAccount()?.nick ?? getNick();
   const v = editor.tab === 'victory';
   const caption = v ? `▶ ${CELEB_NAMES[editor.sel]} · ${ownsCeleb(editor.sel) ? 'preview' : 'locked preview'}` : esc(nick);
-  return `<div class="dim"></div><div class="studio editor-wrap">
-    <div class="topbar2"><button class="btn small ghost" data-action="ed-back">← Back</button><span class="ed-title">YOUR CLIMBER</span><button class="btn small blue" data-action="ed-random">Random</button></div>
+  return `<div class="dim"></div><div class="studio sheet-wrap"><div class="sheet sheet-editor" role="dialog" aria-label="Your climber">
+    <div class="sheet-head"><button class="btn small ghost" data-action="ed-back">← Back</button><span class="ed-title">YOUR CLIMBER</span><button class="btn small blue" data-action="ed-random">Random</button></div>
     <div class="editor">
       <div class="editor-preview"><div class="floor"></div><canvas id="climber-cv" aria-label="Your climber"></canvas><span class="caption" style="border-color:${color(0)}">${caption}</span></div>
       <div class="b-card ed-card">
@@ -1455,7 +1458,7 @@ function editorHtml(): string {
         ${v ? victoryHtml() : lookHtml()}
         <div class="res-actions"><button class="btn green" data-action="ed-save">Save</button><button class="btn ghost" data-action="ed-reset">Reset</button></div>
       </div>
-    </div></div>`;
+    </div></div></div>`;
 }
 
 function renderEditor() {
@@ -1613,7 +1616,7 @@ const screens = {
 };
 
 const topbarScreen = (title: string, right = '') =>
-  `<div class="topbar2"><button class="btn small ghost" data-action="ed-back">← Menu</button><span class="ed-title">${title}</span>${right || '<span class="topbar-spacer"></span>'}</div>`;
+  `<div class="sheet-head"><button class="btn small ghost" data-action="ed-back">← Menu</button><span class="ed-title">${title}</span>${right || '<span class="topbar-spacer"></span>'}</div>`;
 
 function rankRowHtml(pos: number | null, r: { nick: string; outfit: Outfit | null }, value: string, mine: boolean): string {
   const posCls = pos === 1 ? '' : pos === 2 || pos === 3 ? ' silver' : '';
@@ -1639,9 +1642,9 @@ function rankingHtml(): string {
     }
     list = `<div class="rank-list">${top.join('')}</div>`;
   }
-  return `<div class="dim"></div><div class="studio menu2">
+  return `<div class="dim"></div><div class="studio sheet-wrap"><div class="sheet sheet-rank" role="dialog" aria-label="Ranking">
     ${topbarScreen('RANKING', chalkChip())}
-    <div class="b-wrap rank-wrap"><div class="b-card">
+    <div class="rank-body">
       <div class="seg" role="tablist"><button role="tab" aria-selected="${fast}" data-action="rk-tab" data-tab="fast">FASTEST</button><button role="tab" aria-selected="${!fast}" data-action="rk-tab" data-tab="wins">MOST WINS</button></div>
       <p class="res-label" style="text-align:left">${fast ? 'Best verified time per climber · solo and rooms' : 'Verified room wins · every win also earns chalk'}</p>
       ${list}
@@ -1690,8 +1693,8 @@ function shortEmail(e: string): string {
 function profileHtml(): string {
   const acc = getAccount();
   if (!acc) {
-    return `<div class="dim"></div><div class="studio menu2">${topbarScreen('YOUR PROFILE')}
-      <div class="b-wrap"><div class="b-card"><p class="room-status">Log in to see your profile.</p><button class="btn blue" data-action="ed-login">Log in</button></div></div></div>`;
+    return `<div class="dim"></div><div class="studio sheet-wrap"><div class="sheet sheet-rank" role="dialog" aria-label="Your profile">${topbarScreen('YOUR PROFILE')}
+      <div class="rank-body"><p class="room-status">Log in to see your profile.</p><button class="btn blue" data-action="ed-login">Log in</button></div></div></div>`;
   }
   const w = getWallet();
   const p = screens.profile;
@@ -1710,8 +1713,8 @@ function profileHtml(): string {
   const celebs = CELEBRATIONS.map((c) => {
     const own = ownsCeleb(c);
     const eq = myCelebration() === c;
-    return `<div class="cel${eq ? ' eq' : ''}${own ? '' : ' locked'}"><span class="thumb"><canvas class="celeb-cv" data-c="${c}"></canvas>${own ? '' : `<span class="lock">${LOCK}</span>`}</span>
-      <span>${eq ? '★ ' : ''}${CELEB_NAMES[c]}</span>${own ? '' : `<span class="tag price">${CHALK_ICO}${CELEB_PRICE}</span>`}</div>`;
+    return `<div class="cel${eq ? ' eq' : ''}${own ? '' : ' locked'}"><span class="thumb"><canvas class="celeb-cv" data-c="${c}"></canvas>${own ? '' : `<span class="strike" aria-hidden="true"></span><span class="lock">${LOCK}</span>`}</span>
+      <span class="cn">${eq ? '★ ' : ''}${CELEB_NAMES[c]}${eq ? '<small>EQUIPPED</small>' : ''}</span>${own ? '' : `<span class="tag price">${CHALK_ICO}${CELEB_PRICE}</span>`}</div>`;
   }).join('');
   const races = p
     ? h.length
@@ -1727,7 +1730,7 @@ function profileHtml(): string {
     : '';
   const err = menu.error ? `<p class="win-note err">${esc(menu.error)}</p>` : '';
   const note = menu.note ? `<p class="win-note ok">${esc(menu.note)}</p>` : '';
-  return `<div class="dim"></div><div class="studio editor-wrap">
+  return `<div class="dim"></div><div class="studio sheet-wrap"><div class="sheet sheet-profile" role="dialog" aria-label="Your profile">
     ${topbarScreen('YOUR PROFILE', '<button class="btn small orange" data-action="logout">Log out</button>')}
     <div class="profile">
       <div class="b-card">
@@ -1746,7 +1749,7 @@ function profileHtml(): string {
         <div class="sec-title"><span>RECENT RACES</span></div>
         <div class="history">${races}</div>
       </div>
-    </div></div>`;
+    </div></div></div>`;
 }
 
 function renderProfile() {
@@ -1815,7 +1818,7 @@ function topbar2Html(): string {
   const login = acc
     ? `<a class="chalk-chip" href="#/profile" title="Your profile">${CHALK_ICO}${getWallet()?.chalk ?? '…'}</a>`
     : '<button class="btn small blue" data-action="view-login">Log in</button>';
-  return `<div class="topbar2">${who}${rank}${help}${login}</div>`;
+  return acc ? `<div class="topbar2">${who}${login}${rank}${help}</div>` : `<div class="topbar2">${who}${rank}${help}${login}</div>`;
 }
 
 function footPillHtml(): string {
@@ -2143,11 +2146,22 @@ function loop(now: number) {
 
 const overlay = $('overlay');
 overlay.addEventListener('click', (e) => {
+  if (!room && (e.target as HTMLElement).classList?.contains('sheet-wrap')) {
+    location.hash = '#/';
+    return;
+  }
   const el = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
   if (!el || (el as HTMLButtonElement).disabled) return;
   const action = el.dataset.action!;
   if (room) room.handleAction(action, el);
   else void menuAction(action, el);
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || room) return;
+  if (/^#\/(climber|profile|ranking|info\/)/.test(location.hash)) {
+    e.preventDefault();
+    location.hash = '#/';
+  } else if (menu.view !== 'main' && menu.view !== 'recovery') void menuAction('view-main');
 });
 overlay.addEventListener('keydown', (e) => {
   const target = e.target as HTMLElement;

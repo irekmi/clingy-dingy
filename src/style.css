@@ -2299,3 +2299,59 @@ a.who2:hover .pen { opacity: 1; }
 .history-row .mode { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .history-row .tm { text-align: right; font-variant-numeric: tabular-nums; }
 .room-status .pill.prize { vertical-align: middle; }
+
+/* ===== compact sheets (editor, profile, ranking): centred windows, not full screen ===== */
+.studio.sheet-wrap { justify-content: center; padding: 16px; }
+.game.ads-on .studio.sheet-wrap { padding-bottom: 112px; }
+.sheet {
+  width: min(720px, 100%); max-height: 100%; min-height: 0; flex: none;
+  display: flex; flex-direction: column; gap: 10px; padding: 12px; box-sizing: border-box;
+  background: rgba(31, 32, 40, 0.97); border-radius: 20px; box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+}
+.sheet-rank { width: min(480px, 100%); }
+.sheet-profile { width: min(700px, 100%); }
+.sheet-head { display: flex; align-items: center; gap: 8px; }
+.sheet-head .ed-title { flex: 1; text-align: center; font-size: 14px; font-weight: 900; letter-spacing: 2px; }
+.sheet-head .topbar-spacer { width: 72px; }
+.sheet .editor, .sheet .profile {
+  position: static; inset: auto; min-height: 0; flex: 1 1 auto; overflow: hidden;
+  display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 10px;
+}
+.sheet .profile { grid-template-columns: 250px minmax(0, 1fr); }
+.sheet .b-card { background: rgba(255, 255, 255, 0.04); box-shadow: none; padding: 12px; gap: 10px; border-radius: 14px; overflow-y: auto; min-height: 0; }
+.sheet .editor-preview { min-height: 320px; box-shadow: none; border-radius: 14px; }
+.sheet .editor-preview .floor { height: 52px; }
+.sheet .editor-preview .caption { bottom: 10px; font-size: 12px; padding: 4px 12px; }
+.sheet .opt-grid { column-gap: 14px; row-gap: 10px; }
+.sheet .opt { gap: 5px; }
+.sheet .opt > span { font-size: 10px; }
+.sheet .opt .tiles { grid-template-columns: repeat(4, 36px); gap: 6px; }
+.sheet .tile { width: 36px; height: 36px; border-radius: 10px; }
+.sheet .tile svg { width: 28px; height: 28px; }
+.sheet .seg button { padding: 7px; font-size: 13px; }
+.sheet .res-actions .btn { padding-top: 9px; padding-bottom: 9px; font-size: 16px; }
+.sheet .win-grid { gap: 8px; }
+.sheet .win-card .thumb { width: 44px; height: 48px; }
+.sheet .win-card .wc-txt b { font-size: 14px; }
+.sheet .win-action { padding: 10px; }
+.rank-body { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; min-height: 0; }
+.sheet .stat-grid b { font-size: 18px; }
+.sheet .stat-grid div { padding: 8px; }
+.sheet .chalk-box { padding: 8px 10px; }
+.sheet .chalk-box b { font-size: 22px; }
+.sheet .ava.lg { width: 46px; height: 46px; }
+.sheet .history-row { padding: 5px 8px; font-size: 12px; }
+/* celebrations in the profile: locked ones greyed out and struck through, the equipped one highlighted */
+.cel.locked .thumb canvas { filter: grayscale(1); opacity: 0.4; }
+.cel.locked .cn { color: #6b7080; text-decoration: line-through; }
+.cel .strike { position: absolute; inset: 0; background: linear-gradient(to top right, transparent calc(50% - 1.5px), rgba(229, 72, 77, 0.85) calc(50% - 1.5px), rgba(229, 72, 77, 0.85) calc(50% + 1.5px), transparent calc(50% + 1.5px)); }
+.cel.eq .thumb { border-color: var(--ok); box-shadow: 0 0 0 3px rgba(47, 191, 113, 0.3); }
+.cel .cn { display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+.cel .cn small { font-size: 9px; letter-spacing: 1px; color: var(--ok); }
+@media (max-width: 760px) {
+  .sheet { overflow-y: auto; }
+  .sheet .editor, .sheet .profile { grid-template-columns: 1fr; overflow: visible; }
+  .sheet .editor-preview { min-height: 220px; }
+  .sheet .b-card { overflow: visible; }
+}
+.win-card.locked .thumb canvas { filter: grayscale(1); }
