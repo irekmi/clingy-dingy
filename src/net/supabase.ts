@@ -82,6 +82,11 @@ export interface SubmitReply {
   /** serwer uznał bieg za podejrzany (np. zbyt równe trafienia) */
   suspect?: boolean;
   flags?: string[];
+  /** serwer rozstrzygnął mecz przy tym zgłoszeniu */
+  decided?: boolean;
+  winnerIsYou?: boolean;
+  /** chalk przyznany mi za wygraną (tylko gdy to zgłoszenie zamknęło mecz) */
+  chalkAwarded?: number;
 }
 
 /** Zakłada mecz na serwerze; null = nie udało się (wynik takiego meczu nie trafi do rankingu). */

@@ -17,6 +17,15 @@ import {
 } from '@sim';
 import {
   accountPending,
+  buyCelebration,
+  CELEB_PRICE,
+  equipCelebration,
+  getWallet,
+  myCelebration,
+  onWalletChange,
+  refreshWallet,
+  rpcCode,
+  saveOutfitRemote,
   accountsEnabled,
   changeNick,
   fetchHistory,
@@ -37,7 +46,7 @@ import {
   type LeaderRow,
 } from './account';
 import { setAdsVisible } from './ads';
-import { ClimbView, DEFAULT_OUTFIT, drawClimberPreview, MAX_PLAYERS, OUTFIT_OPTIONS, PLAYER_COLORS, PLAYER_HAIR, sanitizeOutfit, type Outfit } from './game/render';
+import { CELEBRATIONS, ClimbView, DEFAULT_OUTFIT, drawClimberPreview, MAX_PLAYERS, OUTFIT_OPTIONS, PLAYER_COLORS, PLAYER_HAIR, sanitizeOutfit, type Celebration, type Outfit } from './game/render';
 import { getMyOutfit, OPTION_NAMES, PART_LABELS, saveMyOutfit } from './outfit';
 import { INFO_LINKS, infoHtml, isInfoPage } from './pages';
 import { LocalTransport } from './net/localTransport';
@@ -334,6 +343,11 @@ class Room {
   private soloRes: { record: boolean; prevBest: number | null; stats: SoloStats } | null = null;
   /** outfits of the others (from Presence, sanitized); kept after a player leaves */
   private outfits = new Map<string, Outfit | null>();
+  private celebs = new Map<string, Celebration>();
+  private celebOf(id: string): Celebration {
+    return id === this.me.id ? myCelebration() : (this.celebs.get(id) ?? 'clap');
+  }
+  private offWallet: () => void;
   private outfitOf(id: string): Outfit | null {
     return id === this.me.id ? getMyOutfit() : (this.outfits.get(id) ?? null);
   }
@@ -344,7 +358,7 @@ class Room {
     readonly solo = false,
   ) {
     this.route = routeFor(`lobby-${code}`);
-    this.me = { id: PLAYER_ID, nick: getNick(), ready: null, joinedAt: Date.now(), acct: !!getAccount(), outfit: getMyOutfit() };
+    this.me = { id: PLAYER_ID, nick: getNick(), ready: null, joinedAt: Date.now(), acct: !!getAccount(), outfit: getMyOutfit(), celebration: myCelebration() };
     this.t = solo ? new SoloTransport() : USE_SUPABASE ? new SupabaseTransport(code) : new LocalTransport(code);
     this.t.on('start', (p) => this.onStart(p));
     this.t.on('pos', (p) => this.onPos(p));
@@ -361,6 +375,11 @@ class Room {
         this.error = `Could not connect to the game server (${e?.message ?? e}).`;
         this.refresh();
       });
+    this.offWallet = onWalletChange(() => {
+      if (this.me.celebration === myCelebration()) return;
+      this.me = { ...this.me, celebration: myCelebration() };
+      this.t.setMeta(this.me);
+    });
     this.offAccount = onAccountChange((a) => {
       this.me = { ...this.me, nick: a?.nick ?? getNick(), acct: !!a };
       this.t.setMeta(this.me);
@@ -385,6 +404,7 @@ class Room {
     window.removeEventListener('keydown', this.onKey);
     $('panel-me').removeEventListener('pointerdown', this.onPointer);
     this.offAccount();
+    this.offWallet();
     this.t.close();
     $('hud').classList.add('hidden');
     meView.reset();
@@ -418,7 +438,10 @@ class Room {
     const others = list
       .filter((p) => p && p.id !== this.me.id)
       .map((p) => ({ ...p, nick: cleanNick(p.nick) || '???' }));
-    for (const p of others) this.outfits.set(p.id, sanitizeOutfit(p.outfit));
+    for (const p of others) {
+      this.outfits.set(p.id, sanitizeOutfit(p.outfit));
+      this.celebs.set(p.id, CELEBRATIONS.includes(p.celebration as Celebration) ? (p.celebration as Celebration) : 'clap');
+    }
     this.players = [...others, this.me].sort((a, b) => a.joinedAt - b.joinedAt || a.id.localeCompare(b.id));
     const present = new Set(this.players.map((p) => p.id));
     for (const p of this.players) {
@@ -613,6 +636,7 @@ class Room {
           this.verify = !r.valid ? 'bad' : r.suspect ? 'suspect' : 'ok';
           const acc = getAccount();
           if (r.ranked && acc) this.myRecord = await fetchMyBest(acc.userId).catch(() => null);
+          if (acc && r.chalkAwarded) void refreshWallet().catch(() => {});
         })
         .catch(() => (this.verify = 'error'))
         .finally(() => this.refresh());
@@ -705,6 +729,7 @@ class Room {
         chalkUp,
         rank: ranks?.get(this.me.id) ?? null,
         outfit: getMyOutfit(),
+        celebration: myCelebration(),
       },
       now,
       dt,
@@ -736,6 +761,7 @@ class Room {
           chalkUp,
           rank: ranks?.get(id) ?? null,
           outfit: id === '__empty' ? null : this.outfitOf(id),
+          celebration: this.celebOf(id),
         },
         now,
         dt,
@@ -1264,13 +1290,30 @@ class Room {
 }
 
 
-// ---------- edytor postaci (#/climber) ----------
+// ---------- edytor postaci (#/climber, #/climber/victory) ----------
 
 type Part = keyof typeof OUTFIT_OPTIONS;
-const editor = { outfit: { ...DEFAULT_OUTFIT } as Outfit };
+const editor = {
+  outfit: { ...DEFAULT_OUTFIT } as Outfit,
+  tab: 'look' as 'look' | 'victory',
+  sel: 'clap' as Celebration,
+  confirm: false,
+  busy: false,
+  msg: '',
+  err: '',
+};
 
 const PEN = svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>', 14);
 const NO_BAND = svg('<circle cx="12" cy="12" r="8"/><path d="M6.5 17.5l11-11"/>', 22);
+const LOCK = svg('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', 12);
+const CHALK_ICO = `<svg class="chalk-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#f4f1e8" stroke="#c9b28a" stroke-width="2"/><circle cx="9" cy="10" r="1.3" fill="#c9b28a"/><circle cx="14" cy="14.5" r="1.1" fill="#c9b28a"/><circle cx="14.8" cy="8.6" r="0.9" fill="#c9b28a"/></svg>`;
+const CELEB_NAMES: Record<Celebration, string> = { clap: 'Classic', chalk: 'Chalk bomb', flex: 'Flex', disco: 'Disco', flip: 'Backflip' };
+
+const chalkChip = () => {
+  const w = getWallet();
+  return getAccount() && w ? `<span class="chalk-chip" title="Your chalk">${CHALK_ICO}${w.chalk}</span>` : '';
+};
+const ownsCeleb = (c: Celebration) => c === 'clap' || !!getWallet()?.owned.includes(c);
 
 /** a small head with the hair style, in the current hair and skin colours */
 function hairIcon(style: string, hair: string, skin: string): string {
@@ -1284,9 +1327,9 @@ function hairIcon(style: string, hair: string, skin: string): string {
   return `<svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true">${style === 'long' ? extra : ''}${head}${cap}${style === 'long' ? '' : extra}</svg>`;
 }
 
-function editorHtml(): string {
+function lookHtml(): string {
   const o = editor.outfit;
-  const sections = PART_LABELS.map(([part, label]) => {
+  return `<div class="opt-grid">${PART_LABELS.map(([part, label]) => {
     const opts = OUTFIT_OPTIONS[part] as readonly (string | null)[];
     const cur = opts.indexOf(o[part] as string | null);
     const tiles = opts
@@ -1302,15 +1345,61 @@ function editorHtml(): string {
       })
       .join('');
     return `<div class="opt"><span>${label} · <b>${OPTION_NAMES[part][Math.max(0, cur)]}</b></span><div class="tiles">${tiles}</div></div>`;
+  }).join('')}</div>`;
+}
+
+function victoryActionHtml(): string {
+  const c = editor.sel;
+  const name = CELEB_NAMES[c];
+  const acc = getAccount();
+  const w = getWallet();
+  const note = (t: string, cls = '') => `<p class="win-note${cls ? ' ' + cls : ''}">${t}</p>`;
+  const extra = (editor.msg ? note(esc(editor.msg), 'ok') : '') + (editor.err ? note(esc(editor.err), 'err') : '');
+  if (!acc) {
+    if (c === 'clap') return `<div class="win-action">${note("✓ Equipped – you'll do this after your next win.", 'ok')}</div>`;
+    return `<div class="win-action">${note(accountsEnabled ? 'Log in to earn chalk from wins and unlock celebrations.' : 'Celebrations unlock with an online account.')}${accountsEnabled ? '<button class="btn blue" data-action="ed-login">Log in</button>' : ''}</div>`;
+  }
+  if (!w) return `<div class="win-action">${note('Loading your chalk…')}</div>`;
+  const dis = editor.busy ? 'disabled' : '';
+  if (ownsCeleb(c)) {
+    if (w.celebration === c) return `<div class="win-action">${extra || note("✓ Equipped – you'll do this after your next win.", 'ok')}</div>`;
+    return `<div class="win-action"><button class="btn blue" data-action="ed-equip" ${dis}>Equip ${esc(name)}</button>${extra}</div>`;
+  }
+  if (w.chalk >= CELEB_PRICE) {
+    if (editor.confirm) {
+      return `<div class="win-action">${note(`Spend ${CELEB_PRICE} chalk on ${esc(name)}? You'll have ${w.chalk - CELEB_PRICE} left.`)}
+        <div class="res-actions"><button class="btn green" data-action="ed-buy" ${dis}>${editor.busy ? 'Unlocking…' : 'Unlock'}</button><button class="btn ghost" data-action="ed-cancel" ${dis}>Cancel</button></div>${extra}</div>`;
+    }
+    return `<div class="win-action"><button class="btn gold" data-action="ed-unlock">Unlock for ${CHALK_ICO} ${CELEB_PRICE}</button>${extra}</div>`;
+  }
+  return `<div class="win-action"><button class="btn need" disabled>${CHALK_ICO} ${CELEB_PRICE} · need ${CELEB_PRICE - w.chalk} more</button>
+    ${note('Win races to earn chalk: +10 for a win, +5 for every extra climber in the room.')}${extra}</div>`;
+}
+
+function victoryHtml(): string {
+  const equipped = myCelebration();
+  const cards = CELEBRATIONS.map((c, i) => {
+    const owned = ownsCeleb(c);
+    const tag = equipped === c ? '<span class="tag equipped">EQUIPPED</span>' : owned ? `<span class="tag owned">${c === 'clap' ? 'FREE' : 'OWNED'}</span>` : `<span class="tag price">${CHALK_ICO}${CELEB_PRICE}</span>`;
+    return `<button class="win-card${i === 0 ? ' wide' : ''}${owned ? '' : ' locked'}" aria-pressed="${editor.sel === c}" data-action="ed-celeb" data-c="${c}">
+      <span class="thumb"><canvas class="celeb-cv" data-c="${c}"></canvas>${owned ? '' : `<span class="lock">${LOCK}</span>`}</span>
+      <span class="wc-txt"><b>${CELEB_NAMES[c]}</b>${tag}</span></button>`;
   }).join('');
+  return `<div class="win-head"><span>Your move at the top after a win.</span>${chalkChip()}</div>
+    <div class="win-grid">${cards}</div>${victoryActionHtml()}`;
+}
+
+function editorHtml(): string {
   const nick = getAccount()?.nick ?? getNick();
+  const v = editor.tab === 'victory';
+  const caption = v ? `▶ ${CELEB_NAMES[editor.sel]} · ${ownsCeleb(editor.sel) ? 'preview' : 'locked preview'}` : esc(nick);
   return `<div class="dim"></div><div class="studio editor-wrap">
     <div class="topbar2"><button class="btn small ghost" data-action="ed-back">← Back</button><span class="ed-title">YOUR CLIMBER</span><button class="btn small blue" data-action="ed-random">Random</button></div>
     <div class="editor">
-      <div class="editor-preview"><div class="floor"></div><canvas id="climber-cv" aria-label="Your climber"></canvas><span class="caption" style="border-color:${color(0)}">${esc(nick)}</span></div>
+      <div class="editor-preview"><div class="floor"></div><canvas id="climber-cv" aria-label="Your climber"></canvas><span class="caption" style="border-color:${color(0)}">${caption}</span></div>
       <div class="b-card ed-card">
-        <div class="seg" role="tablist"><button role="tab" aria-selected="true">LOOK</button><button role="tab" aria-selected="false" disabled title="Coming soon">VICTORY</button></div>
-        <div class="opt-grid">${sections}</div>
+        <div class="seg" role="tablist"><button role="tab" aria-selected="${!v}" data-action="ed-tab" data-tab="look">LOOK</button><button role="tab" aria-selected="${v}" data-action="ed-tab" data-tab="victory">VICTORY</button></div>
+        ${v ? victoryHtml() : lookHtml()}
         <div class="res-actions"><button class="btn green" data-action="ed-save">Save</button><button class="btn ghost" data-action="ed-reset">Reset</button></div>
       </div>
     </div></div>`;
@@ -1321,6 +1410,36 @@ function renderEditor() {
   paintOverlay(editorHtml(), 'climber');
   const card = document.querySelector('.ed-card');
   if (card) card.scrollTop = scroll;
+}
+
+function openEditor(tab: 'look' | 'victory') {
+  editor.outfit = { ...(getMyOutfit() ?? DEFAULT_OUTFIT) };
+  editor.tab = tab;
+  editor.sel = myCelebration();
+  editor.confirm = false;
+  editor.msg = editor.err = '';
+  renderEditor();
+  if (getAccount()) void refreshWallet().catch(() => {});
+}
+
+async function editorRpc(fn: () => Promise<unknown>, ok: string) {
+  editor.busy = true;
+  editor.err = editor.msg = '';
+  renderEditor();
+  try {
+    await fn();
+    editor.msg = ok;
+    editor.confirm = false;
+  } catch (e) {
+    const code = rpcCode(e);
+    editor.confirm = false;
+    if (code === 'not_enough_chalk') editor.err = 'Not enough chalk.';
+    else if (code === 'already_owned') editor.err = 'You already own it.';
+    else editor.err = plError(e);
+    await refreshWallet().catch(() => {});
+  }
+  editor.busy = false;
+  if (location.hash.startsWith('#/climber')) renderEditor();
 }
 
 function editorAction(action: string, el?: HTMLElement): boolean {
@@ -1335,6 +1454,43 @@ function editorAction(action: string, el?: HTMLElement): boolean {
       renderEditor();
       return true;
     }
+    case 'ed-tab':
+      editor.tab = el?.dataset.tab === 'victory' ? 'victory' : 'look';
+      editor.confirm = false;
+      editor.msg = editor.err = '';
+      renderEditor();
+      return true;
+    case 'ed-celeb': {
+      const c = el?.dataset.c as Celebration | undefined;
+      if (c && CELEBRATIONS.includes(c)) editor.sel = c;
+      editor.confirm = false;
+      editor.msg = editor.err = '';
+      renderEditor();
+      return true;
+    }
+    case 'ed-unlock':
+      editor.confirm = true;
+      editor.msg = editor.err = '';
+      renderEditor();
+      return true;
+    case 'ed-cancel':
+      editor.confirm = false;
+      renderEditor();
+      return true;
+    case 'ed-buy': {
+      const c = editor.sel;
+      void editorRpc(() => buyCelebration(c), 'Unlocked and equipped!');
+      return true;
+    }
+    case 'ed-equip': {
+      const c = editor.sel;
+      void editorRpc(() => equipCelebration(c), "Equipped – you'll do this after your next win.");
+      return true;
+    }
+    case 'ed-login':
+      pendingView = 'login';
+      location.hash = '#/';
+      return true;
     case 'ed-random': {
       const pick = <T>(a: readonly T[]) => a[Math.floor(Math.random() * a.length)];
       const O = OUTFIT_OPTIONS;
@@ -1348,6 +1504,7 @@ function editorAction(action: string, el?: HTMLElement): boolean {
       return true;
     case 'ed-save':
       saveMyOutfit(editor.outfit);
+      if (getAccount()) void saveOutfitRemote(editor.outfit).catch((e) => console.error(e));
       location.hash = '#/';
       return true;
     case 'ed-back':
@@ -1357,13 +1514,10 @@ function editorAction(action: string, el?: HTMLElement): boolean {
   return false;
 }
 
-/** the live preview in the editor (called every frame) */
-function drawEditorPreview(now: number) {
-  const cv = document.getElementById('climber-cv') as HTMLCanvasElement | null;
-  if (!cv) return;
+function fitCanvas(cv: HTMLCanvasElement): CanvasRenderingContext2D | null {
   const w = cv.clientWidth;
   const h = cv.clientHeight;
-  if (!w || !h) return;
+  if (!w || !h) return null;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
     cv.width = Math.round(w * dpr);
@@ -1372,7 +1526,20 @@ function drawEditorPreview(now: number) {
   const ctx = cv.getContext('2d')!;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  drawClimberPreview(ctx, w, h - 30, editor.outfit, 0, null, now);
+  return ctx;
+}
+
+/** the live previews in the editor (called every frame) */
+function drawEditorPreview(now: number) {
+  const cv = document.getElementById('climber-cv') as HTMLCanvasElement | null;
+  if (!cv) return;
+  const ctx = fitCanvas(cv);
+  if (ctx) drawClimberPreview(ctx, cv.clientWidth, cv.clientHeight - 30, editor.outfit, 0, editor.tab === 'victory' ? editor.sel : null, now);
+  document.querySelectorAll<HTMLCanvasElement>('canvas.celeb-cv').forEach((t) => {
+    const c = t.dataset.c as Celebration;
+    const tctx = fitCanvas(t);
+    if (tctx) drawClimberPreview(tctx, t.clientWidth, t.clientHeight + 6, editor.outfit, 0, c, now);
+  });
 }
 
 // ---------- menu, konto, ranking ----------
@@ -1581,7 +1748,7 @@ function menuHtml(): string {
 }
 
 function renderMenu() {
-  if (location.hash === '#/climber') return renderEditor();
+  if (location.hash.startsWith('#/climber')) return renderEditor();
   if (!room && !accountPending()) paintOverlay(menuHtml(), 'menu-' + menu.view); // wait for a saved login, no guest flash
 }
 
@@ -1806,11 +1973,10 @@ function route() {
     room?.destroy();
     room = new Room(code);
     if (import.meta.env.DEV) (window as unknown as { __room: Room }).__room = room; // tylko do debugowania
-  } else if (location.hash === '#/climber') {
+  } else if (location.hash === '#/climber' || location.hash === '#/climber/victory') {
     room?.destroy();
     room = null;
-    editor.outfit = { ...(getMyOutfit() ?? DEFAULT_OUTFIT) };
-    renderEditor();
+    openEditor(location.hash.endsWith('/victory') ? 'victory' : 'look');
   } else if (/^#\/info\/[a-z-]+$/.test(location.hash) && isInfoPage(location.hash.slice(7))) {
     room?.destroy();
     room = null;
@@ -1879,6 +2045,9 @@ onPasswordRecovery(() => {
   if (!room) renderMenu();
 });
 onAccountReady(() => (room ? room.refresh() : location.hash.startsWith('#/info/') ? route() : renderMenu()));
+onWalletChange(() => {
+  if (!room && location.hash.startsWith('#/climber')) renderEditor();
+});
 initAccounts();
 window.addEventListener('hashchange', route);
 route();

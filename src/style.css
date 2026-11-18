@@ -2256,3 +2256,14 @@ a.who2 { color: #fff; text-decoration: none; }
 .who2 .pen { display: inline-flex; opacity: 0.7; margin-left: 2px; }
 a.who2:hover .pen { opacity: 1; }
 .game.ads-on .editor { bottom: 110px; }
+.win-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 800; color: #c9ccd8; }
+.win-card { cursor: pointer; }
+.win-card .wc-txt { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.win-card .wc-txt b { font-size: 15px; font-weight: 900; }
+.win-card .thumb canvas { display: block; }
+.win-card .lock { color: #fff; }
+.win-note { margin: 0; font-size: 13px; font-weight: 800; color: #c9ccd8; line-height: 1.35; }
+.win-note.ok { color: #a7f3c9; }
+.win-note.err { color: #ffd0d0; }
+.btn .chalk-ico { width: 18px; height: 18px; vertical-align: -3px; }
+.btn.gold, .btn.need { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }

@@ -1,5 +1,7 @@
 // Konta graczy: Supabase Auth (e-mail + hasło) i ranking najlepszych czasów.
 import { getClient, supabaseConfigured } from './net/supabase';
+import { CELEBRATIONS, sanitizeOutfit, type Celebration, type Outfit } from './game/render';
+import { getMyOutfit, saveMyOutfit } from './outfit';
 
 export interface Account {
   userId: string;
@@ -60,7 +62,14 @@ export function onAccountChange(cb: (a: Account | null) => void) {
 }
 
 async function loadProfile(userId: string, email: string): Promise<Account> {
-  const { data } = await getClient().from('profiles').select('nick').eq('id', userId).maybeSingle();
+  const { data } = await getClient().from('profiles').select('nick,outfit').eq('id', userId).maybeSingle();
+  // the outfit follows the account: the saved one wins; a guest outfit is moved into a fresh profile
+  const saved = sanitizeOutfit(data?.outfit);
+  if (saved) saveMyOutfit(saved);
+  else {
+    const local = getMyOutfit();
+    if (local) void getClient().from('profiles').update({ outfit: local }).eq('id', userId);
+  }
   return { userId, email, nick: data?.nick ?? email.split('@')[0].slice(0, 16) };
 }
 
@@ -69,6 +78,8 @@ function emit(a: Account | null) {
   pending = false;
   listeners.forEach((cb) => cb(a));
   readyListeners.forEach((cb) => cb());
+  if (!a) setWallet(null);
+  else if (!wallet) void refreshWallet();
 }
 
 /** Uruchamia nasłuch sesji (także po kliknięciu linku z e-maila). */
@@ -192,4 +203,86 @@ export async function fetchHistory(limit = 30): Promise<HistoryRow[]> {
     .limit(limit);
   if (error) throw error;
   return (data ?? []) as HistoryRow[];
+}
+
+// ---------- strój, waluta (chalk) i cieszynki ----------
+
+export interface Wallet {
+  chalk: number;
+  /** the celebration I play at the top after a win */
+  celebration: Celebration;
+  /** bought celebrations ('clap' is free and not listed) */
+  owned: Celebration[];
+}
+export const CELEB_PRICE = 200;
+
+let wallet: Wallet | null = null;
+const walletListeners = new Set<(w: Wallet | null) => void>();
+export const getWallet = () => wallet;
+export function onWalletChange(cb: (w: Wallet | null) => void) {
+  walletListeners.add(cb);
+  return () => walletListeners.delete(cb);
+}
+function setWallet(w: Wallet | null) {
+  wallet = w;
+  walletListeners.forEach((cb) => cb(w));
+}
+const asCeleb = (x: unknown): Celebration => (CELEBRATIONS.includes(x as Celebration) ? (x as Celebration) : 'clap');
+
+/** my celebration (a guest always does the free one) */
+export const myCelebration = (): Celebration => (current && wallet ? wallet.celebration : 'clap');
+
+/** reads the balance, the equipped and the owned celebrations from the server (the client never changes them) */
+export async function refreshWallet(): Promise<Wallet | null> {
+  if (!current) {
+    setWallet(null);
+    return null;
+  }
+  const { data, error } = await getClient().rpc('my_wallet');
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return wallet;
+  setWallet({
+    chalk: Math.max(0, Number(row.chalk) || 0),
+    celebration: asCeleb(row.celebration),
+    owned: ((row.owned ?? []) as unknown[]).map(asCeleb).filter((c) => c !== 'clap'),
+  });
+  return wallet;
+}
+
+/** a known RPC error code (not_enough_chalk, already_owned, not_owned, …) or null */
+export function rpcCode(e: unknown): string | null {
+  const m = String((e as { message?: string })?.message ?? e).match(/not_enough_chalk|already_owned|not_owned|not_logged_in|unknown_item/);
+  return m ? m[0] : null;
+}
+
+/** buys (and equips) a celebration; returns the new balance */
+export async function buyCelebration(c: Celebration): Promise<number> {
+  const { data, error } = await getClient().rpc('buy_celebration', { item: c });
+  if (error) {
+    void refreshWallet().catch(() => {});
+    throw error;
+  }
+  await refreshWallet().catch(() => {});
+  return Number(data) || 0;
+}
+
+export async function equipCelebration(c: Celebration) {
+  const { error } = await getClient().rpc('equip_celebration', { item: c });
+  if (error) throw error;
+  await refreshWallet();
+}
+
+/** saves my outfit in the profile (logged in only; guests keep it in the browser) */
+export async function saveOutfitRemote(o: Outfit) {
+  if (!current) return;
+  const { error } = await getClient().from('profiles').update({ outfit: o }).eq('id', current.userId);
+  if (error) throw error;
+}
+
+/** the chalk I won in this match (null: none recorded yet) */
+export async function fetchMatchReward(matchId: string): Promise<number | null> {
+  if (!current) return null;
+  const { data } = await getClient().from('chalk_ledger').select('delta').eq('match_id', matchId).eq('reason', 'win').maybeSingle();
+  return data ? Number(data.delta) : null;
 }

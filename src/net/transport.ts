@@ -9,6 +9,8 @@ export interface PlayerMeta {
   acct?: boolean;
   /** custom outfit (validated with sanitizeOutfit by the receiver) */
   outfit?: unknown;
+  /** victory celebration (checked against CELEBRATIONS by the receiver) */
+  celebration?: string;
 }
 
 export type Handler = (payload: any) => void;

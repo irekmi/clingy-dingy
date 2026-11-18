@@ -5,7 +5,7 @@
 //  2. mecz musi istnieć na serwerze (create-match), a gracz być jego uczestnikiem,
 //  3. czas ścienny: od założenia meczu musiało upłynąć co najmniej odliczanie + zgłoszony czas biegu,
 //  4. statystyka trafień: nienaturalnie równe trafienia = bot -> wynik zapisany, ale poza rankingiem,
-//  5. po zgłoszeniu wyników wszystkich uczestników serwer rozstrzyga zwycięzcę meczu.
+//  5. po zgłoszeniu wyników wszystkich uczestników serwer rozstrzyga zwycięzcę meczu i przyznaje mu chalk.
 //
 // Deploy:  npx supabase functions deploy submit-result
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -119,28 +119,27 @@ Deno.serve(async (req) => {
     return json({ error: 'db error' }, 500);
   }
 
-  // rozstrzygnięcie zwycięzcy po stronie serwera, gdy wszyscy uczestnicy mają już wynik
+  // rozstrzygnięcie zwycięzcy po stronie serwera, gdy wszyscy uczestnicy mają już wynik.
+  // decide_match (SQL) robi to atomowo i raz: zapisuje zwycięzcę i przyznaje chalk (zalogowany, zweryfikowany, >= 2 wyniki).
   let winnerIsYou = false;
   let decided = false;
+  let chalkAwarded = 0;
   if (match) {
-    const { data: all } = await supabase
-      .from('race_results')
-      .select('player_id, verified_ms, valid, suspect')
-      .eq('match_id', matchId);
+    const { data: all } = await supabase.from('race_results').select('player_id').eq('match_id', matchId);
     const players = match.players as string[];
     if (all && all.length >= players.length && !match.finished_at) {
-      const best = all
-        .filter((r) => r.valid && !r.suspect && r.verified_ms !== null)
-        .sort((a, b) => a.verified_ms - b.verified_ms)[0];
-      await supabase
-        .from('matches')
-        .update({ finished_at: new Date().toISOString(), winner_player_id: best?.player_id ?? null })
-        .eq('id', matchId)
-        .is('finished_at', null);
+      const { data: verdict, error: decideError } = await supabase.rpc('decide_match', { p_match: matchId });
+      if (decideError) console.error(decideError);
+      const row = Array.isArray(verdict) ? verdict[0] : null;
       decided = true;
-      winnerIsYou = best?.player_id === playerId;
+      const { data: m2 } = await supabase.from('matches').select('winner_player_id').eq('id', matchId).maybeSingle();
+      winnerIsYou = m2?.winner_player_id === playerId;
+      if (row && userId && row.winner_user === userId) chalkAwarded = row.amount ?? 0;
     }
   }
+  // mecze porzucone (ktoś wyszedł przed metą) – rozstrzygamy przy okazji, żeby zwycięzca dostał swój chalk
+  const { error: staleError } = await supabase.rpc('close_stale_matches');
+  if (staleError) console.error(staleError);
 
-  return json({ valid, verifiedMs, ranked: userId !== null && valid && !suspect, suspect, flags, decided, winnerIsYou });
+  return json({ valid, verifiedMs, ranked: userId !== null && valid && !suspect, suspect, flags, decided, winnerIsYou, chalkAwarded });
 });
