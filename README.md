@@ -6,6 +6,22 @@
 
 > Built end to end as a portfolio project: game design, a real-time multiplayer layer, a server that does not trust the client, accounts and rankings, CI/CD, and a responsive UI. Everything below is implemented and deployed.
 
+## Screenshots
+
+Everything you see is drawn in code on a Canvas 2D (no sprites or image files): the wall, holds, climber, windows, stars and moon. The hall slowly turns from sunset into a starry night as you climb.
+
+| Menu | Start | Climbing at sunset |
+|---|---|---|
+| ![Menu](docs/screenshots/01-menu.jpg) | ![Start](docs/screenshots/02-start.jpg) | ![Climbing at sunset](docs/screenshots/03-climb-sunset.jpg) |
+
+| First stars | Dusk | Night and moon |
+|---|---|---|
+| ![First stars](docs/screenshots/04-climb-first-stars.jpg) | ![Dusk](docs/screenshots/05-climb-dusk.jpg) | ![Night with a moon](docs/screenshots/06-climb-night-moon.jpg) |
+
+| Summit | Results | Phone |
+|---|---|---|
+| ![Summit](docs/screenshots/07-summit-flag.jpg) | ![Results](docs/screenshots/08-results.jpg) | <img src="docs/screenshots/09-phone.jpg" alt="Phone layout" width="160"> |
+
 ## How it plays
 
 A ring closes on the next **blue** hold. When it closes, press the arrow for the side of the hold (`←`/`A` or `→`/`D`; on a phone, tap the left or right half of the screen).
