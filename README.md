@@ -1,35 +1,85 @@
-# Clingy Dingy – wspinaczka 1 na 1
+# Clingy Dingy 🧗
 
-Szybka przeglądarkowa gra dla dwóch osób. Ekran jest podzielony na pół: po lewej wspinasz się Ty, po prawej na żywo widzisz przeciwnika. Wygrywa ten, kto szybciej dotrze na szczyt według **swojego lokalnego timera**, więc lagi nie wpływają na wynik.
+**A rhythm-based climbing duel that runs in the browser.** Race up a gym wall by hitting the beat, solo or against up to five friends, and watch their climbs live on a split screen. No install, no sign-up needed.
 
-**Sterowanie (rytm):** na następnym chwycie zaciska się pierścień. Gdy się zamknie, wciśnij strzałkę strony chwytu: `←`/`A` albo `→`/`D`. Na telefonie dotknij lewej lub prawej połowy swojego ekranu.
+### ▶ [Play it live](https://irekmi.github.io/clingy-dingy/)
 
-| Trafienie | Efekt |
+> Built end to end as a portfolio project: game design, a real-time multiplayer layer, a server that does not trust the client, accounts and rankings, CI/CD, and a responsive UI. Everything below is implemented and deployed.
+
+## How it plays
+
+A ring closes on the next **blue** hold. When it closes, press the arrow for the side of the hold (`←`/`A` or `→`/`D`; on a phone, tap the left or right half of the screen).
+
+| Timing | Result |
 |---|---|
-| PERFEKT (±50 ms) | wchodzisz wyżej, tempo przyspiesza (combo) |
-| OK (±120 ms) | wchodzisz wyżej |
-| za wcześnie | krótka przerwa, tempo od nowa |
-| zła ręka | ześlizg o chwyt w dół |
+| **PERFECT** (±50 ms) | you climb and the tempo speeds up (combo) |
+| **OK** (±120 ms) | you climb at the same pace |
+| too early | a short stall, tempo resets |
+| wrong hand | you slip one hold down |
 
-## Architektura
+- **Solo run**: beat the clock, set a personal record, retry instantly.
+- **Duel / room of up to 6**: share a link, everyone clicks *Ready*, race, rematch. Your wall is large, the others are shown live next to it (a live standings panel for 4–6 players, ranking capsules on phones).
+- **Accounts and rankings**: play as a guest or log in; a global ranking of verified best times, a per-room ranking across rematches, and a personal history.
+
+## What it demonstrates
+
+| Area | What was built |
+|---|---|
+| **Real-time multiplayer** | Supabase Realtime: *Presence* for the lobby and readiness, *Broadcast* for positions. Each client measures **its own time locally**, so network lag never changes a result. |
+| **Server-side trust** | The result is not a number the client sends. It is the replay of the player's **input log** through the same deterministic simulation (`sim.ts`) that runs in the browser *and* in Deno Edge Functions. A forged time does not reproduce. |
+| **Anti-cheat** | Matches are created by the server (only participants can submit, once); a wall-clock check rejects runs faster than physically possible; statistical bot detection flags inhuman timing (too uniform, frame-perfect). Suspect runs are stored for review but kept out of the ranking; the server decides the winner. |
+| **Auth and data** | Supabase Auth (e-mail + password, confirmation, reset), Postgres with **Row Level Security**, SQL views for the rankings and the player's history, versioned migrations. |
+| **Rendering** | Hand-drawn **Canvas 2D** scene: procedurally generated routes, a climber built from interpolated poses (reach, pull-up, slip, summit, idle, chalk-up), move tweening, particles, six character looks, parallax. All drawn in code, no sprite sheets. |
+| **UI / UX** | A responsive HUD that never covers the wall, a phone layout built around ranking capsules, animated menus (respecting `prefers-reduced-motion`), accessible labels. |
+| **Delivery** | TypeScript throughout, Vite, Vitest, GitHub Actions deploying to GitHub Pages on every push to `main`. |
+
+## Architecture
 
 ```
-GitHub Pages (statyczny frontend: Vite + TypeScript + Canvas)
-        │  WebSocket
-        ▼
-Supabase Realtime ── pokój "room-KOD": Presence (kto jest, kto gotowy) + Broadcast (start, pozycja, meta)
-Supabase Edge Function "submit-result" ── odtwarza bieg z logu wciśnięć i zapisuje zweryfikowany czas
-Supabase Postgres ── tabela race_results (+ widok leaderboard)
+GitHub Pages ── static front end (Vite + TypeScript + Canvas 2D)
+      │
+      │  WebSocket                                        HTTPS
+      ▼                                                    ▼
+Supabase Realtime                          Supabase Edge Functions (Deno)
+  room channel: Presence + Broadcast         create-match   → creates the match, fixes the start time
+                                             submit-result  → replays the input log, checks time and
+                                                              statistics, stores the verdict
+                                                    │
+                                                    ▼
+                                         Postgres (RLS): matches, race_results, profiles
+                                         views: leaderboard, my_results
 ```
 
-Jak działa uczciwy lokalny timer:
+**How a fair race works**
 
-1. Host wysyła `start` z losowym `matchId`. Z niego obaj gracze generują identyczną trasę.
-2. Każdy klient odlicza 3 s **lokalnie** i mierzy swój czas od własnego sygnału START.
-3. Każde wciśnięcie trafia do logu `[czas_ms, strona]`. Wynik to czas z symulacji ([`sim.ts`](supabase/functions/_shared/sim.ts)), a nie dowolna liczba, którą można podmienić.
-4. Na mecie log trafia do przeciwnika (sprawdza go u siebie) i do Edge Function (sprawdza go serwer). Ten sam plik `sim.ts` działa w przeglądarce i na serwerze, więc zmanipulowany wynik nie przejdzie.
+1. The server creates the match and returns a `matchId`; every player derives the **same route** from it.
+2. Each client counts down 3 s *locally* and measures its own time from its own START signal.
+3. Every key press is logged as `[time_ms, side]`. The time of a run is *computed from that log*, not reported.
+4. At the finish the log goes to the opponents (who verify it client-side) and to the Edge Function (which verifies it authoritatively and records the winner).
 
-## Uruchomienie lokalne
+`supabase/functions/_shared/sim.ts` is one file imported by both the browser and the server. That is the whole trick: identical code on both sides means a result cannot be argued with.
+
+## Tech stack
+
+TypeScript · Vite · Canvas 2D · Supabase (Realtime, Auth, Postgres + RLS, Edge Functions on Deno) · Vitest · GitHub Actions · GitHub Pages
+
+## Project structure
+
+```
+src/main.ts                 room flow: lobby, countdown, race, results; menus; solo mode; routing
+src/game/render.ts          the Canvas scene: wall, holds, climber poses and animation, particles
+src/net/                    transports: Supabase Realtime, local (BroadcastChannel), solo (no-op)
+src/account.ts              auth, profile, ranking and history queries
+src/solo.ts                 personal records of the solo mode (localStorage)
+src/pages.ts, src/ads.ts    info pages and the (optional) ad slot
+supabase/functions/_shared/sim.ts   deterministic simulation + run analysis, shared by client and server
+supabase/functions/         create-match, submit-result (Edge Functions)
+supabase/migrations/        database schema, RLS policies, views
+tests/sim.test.ts           simulation and anti-bot tests
+docs/                       SETUP.md (run, deploy), ROADMAP.md (plans, design decisions)
+```
+
+## Run it locally
 
 ```bash
 npm install
@@ -39,65 +89,14 @@ npm install
 npm run dev
 ```
 
-Bez pliku `.env.local` gra działa w **trybie lokalnym**: utwórz pokój i otwórz ten sam link w **drugim oknie** tej samej przeglądarki. Ustaw okna obok siebie, bo karta w tle nie rysuje animacji.
+It works out of the box in **local mode** (no backend): try *Solo run*, or open a room link in two windows for a duel. Run the tests with `npm test`. Connecting your own Supabase project and deploying are covered in [docs/SETUP.md](docs/SETUP.md).
 
-Testy logiki gry:
+## Decisions and trade-offs
 
-```bash
-npm test
-```
+- **Local timer, server replay** instead of streaming every frame: cheap to run, immune to lag, and still verifiable. The cost is that a perfect bot could in theory produce a plausible log, which is why timing statistics and moderation exist on top.
+- **Free to play, ad-supported** (AdSense prepared but off until a domain and consent banner are in place): paid entry and payouts were dropped on purpose to avoid gambling regulation and payment handling.
+- **No backend of my own**: Supabase covers realtime, auth and data, so the whole project deploys as static files plus a few Edge Functions.
 
-## Krok po kroku: Supabase (gra przez internet)
+## Roadmap
 
-1. Na [supabase.com](https://supabase.com) utwórz projekt (**New project**), najlepiej w regionie Frankfurt (`eu-central-1`).
-2. **Project Settings → API**: skopiuj *Project URL* i klucz **publishable** (albo *anon*). Utwórz plik `.env.local` na wzór [.env.example](.env.example).
-3. Załóż tabelę. Masz dwie możliwości:
-   - wklej zawartość [`supabase/migrations/20261117000000_init.sql`](supabase/migrations/20261117000000_init.sql) w **SQL Editor** i kliknij *Run*, **albo**
-   - użyj CLI:
-     ```bash
-     npx supabase login
-     ```
-     ```bash
-     npx supabase link --project-ref TWOJ_PROJECT_REF
-     ```
-     ```bash
-     npx supabase db push
-     ```
-4. Wdróż funkcję weryfikującą wyniki (wymaga kroku `link` powyżej):
-   ```bash
-   npx supabase functions deploy submit-result
-   ```
-5. **Realtime → Settings**: upewnij się, że opcja *Allow public access* jest włączona (gra używa publicznych kanałów).
-6. Uruchom `npm run dev`. W menu powinien pojawić się napis „Online: Supabase Realtime ✔”. Od teraz możecie grać z dwóch różnych przeglądarek i komputerów.
-
-> Klucz publishable/anon jest publiczny i trafia do przeglądarki. Tak ma być, bo bezpieczeństwo zapewniają RLS i Edge Function. **Nigdy** nie umieszczaj w repo ani we froncie klucza `secret` / `service_role`.
-
-## Krok po kroku: publikacja na GitHub Pages
-
-1. Na GitHubie utwórz nowe repo, np. `patyczaki-wspinaczka`, i wypchnij kod:
-   ```bash
-   git remote add origin https://github.com/TWOJ_LOGIN/patyczaki-wspinaczka.git
-   ```
-   ```bash
-   git push -u origin main
-   ```
-2. W repo: **Settings → Pages → Source: GitHub Actions**.
-3. **Settings → Secrets and variables → Actions → zakładka Variables**: dodaj `VITE_SUPABASE_URL` i `VITE_SUPABASE_KEY`.
-4. Każdy push na `main` buduje i publikuje grę pod adresem `https://TWOJ_LOGIN.github.io/patyczaki-wspinaczka/`. Workflow znajdziesz w [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
-
-## Struktura
-
-```
-src/main.ts                 – przebieg meczu: lobby, odliczanie, wyścig, wyniki
-src/game/render.ts          – rysowanie ściany i patyczaka (Canvas)
-src/net/transport.ts        – wspólny interfejs pokoju
-src/net/supabase.ts         – Supabase Realtime + wywołanie Edge Function
-src/net/localTransport.ts   – tryb testowy (BroadcastChannel)
-supabase/functions/_shared/sim.ts      – deterministyczna symulacja (klient + serwer)
-supabase/functions/submit-result/      – weryfikacja i zapis wyniku
-supabase/migrations/                   – schemat bazy
-tests/sim.test.ts           – testy symulacji
-docs/ROADMAP.md             – kolejne etapy, w tym płatności
-```
-
-Plan dalszych prac i uwagi o płatnościach: [docs/ROADMAP.md](docs/ROADMAP.md).
+Moderator panel for flagged runs, a character configurator, e-mail change and account deletion, interstitial ads every 5 solo attempts, and a “falling” fail state for the solo mode. Details and status: [docs/ROADMAP.md](docs/ROADMAP.md).

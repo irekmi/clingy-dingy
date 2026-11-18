@@ -31,8 +31,13 @@ Styl: płaska ilustracja wektorowa hali wspinaczkowej. Gra nazywa się **Clingy 
 - [x] Ranking ogólny (najlepszy czas każdego zalogowanego gracza, bez wyników podejrzanych) + ranking pokoju (najlepsze czasy i wygrane w serii rewanży)
 - [x] Pokoje do 6 graczy: Twoja ściana po lewej, przeciwnicy w siatce, wyniki z miejscami
 - [x] Zwycięzca rozstrzygany po stronie serwera: gdy wszyscy uczestnicy zgłoszą wyniki, serwer zapisuje `winner_player_id` (liczone są tylko wyniki poprawne i niepodejrzane)
+- [x] **Tryb solo** (`#/solo`): jeden gracz, bez pokoju i przeciwników. Mecz tworzy serwer (1 gracz), więc czas jest weryfikowany jak w pojedynku i trafia do rankingu ogólnym zalogowanych. Rekord osobisty i ostatnie podejścia w `localStorage` (`src/solo.ts`), natychmiastowa powtórka (spacja).
 - [ ] Panel moderatora: przegląd wyników z flagami (`suspect`), odblokowanie lub usunięcie
 - [ ] Zmiana adresu e-mail i usuwanie konta przez gracza
+
+## Tryb solo: plany (zapisane na później)
+- [ ] **Reklama co 5 prób.** Co piątą ukończoną próbę pokazujemy reklamę, **wyłącznie na ekranie wyników** (nigdy w trakcie biegu), tak jak reszta reklam w grze. W kodzie jest już licznik prób i jedno miejsce do podpięcia: `SOLO_AD_EVERY` i `soloAdDue(attempts)` w `src/solo.ts`. Wymaga domeny i zgody na cookies z Etapu 3.
+- [ ] **Upadek i koniec gry (pomysł, na razie bez decyzji).** Po określonej liczbie błędów postać spada na sam dół i jest „game over”. Do rozstrzygnięcia: ile błędów (stały limit czy „życia”), czy dotyczy tylko solo czy też pojedynków, jak to wpływa na ranking (nieukończony bieg bez czasu) i jak wygląda animacja upadku. Teraz błąd cofa o jeden chwyt i nic więcej.
 
 ## Etap 3: monetyzacja z reklam (Google AdSense)
 

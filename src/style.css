@@ -1604,3 +1604,75 @@ button:disabled {
   padding: 0 12px;
   text-align: center;
 }
+
+/* ---------- solo run: one centred wall, no opponents ---------- */
+.game.solo .split {
+  grid-template-columns: minmax(0, 520px);
+  justify-content: center;
+}
+.game.solo .opp-area,
+.game.solo .hud-p,
+.game.solo .hud-race {
+  display: none;
+}
+.game.solo .hud {
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  right: auto;
+  width: min(520px, calc(100% - 16px));
+  transform: translateX(-50%);
+  gap: 6px;
+  justify-content: space-between;
+}
+.game.solo .hud-bar {
+  grid-template-columns: auto;
+  justify-content: center;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+}
+.game.solo .hud-time {
+  border-radius: 999px;
+  padding: 3px 18px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.game.solo .hud-time b {
+  font-size: 22px;
+}
+.game.solo .hud-caps {
+  --gap: 5px;
+  --h: 30px;
+  display: block;
+  position: relative;
+  height: var(--h);
+}
+.game.solo .banner {
+  left: 50%;
+  width: min(520px, 100%);
+  transform: translateX(-50%);
+  bottom: calc(var(--caps-h, 30px) + 22px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  justify-content: center;
+}
+.solo-bar {
+  align-items: center;
+  margin-bottom: 8px;
+}
+.solo-best {
+  flex: 1 1 220px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #c9ccd8;
+}
+.solo-best b {
+  color: var(--gold);
+}
+@media (max-width: 560px) {
+  .solo-bar .btn {
+    flex: 1 1 100%;
+  }
+  .solo-best {
+    text-align: center;
+  }
+}

@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
   const { room, players } = body ?? {};
   if (
     typeof room !== 'string' || !ROOM_RE.test(room) ||
-    !Array.isArray(players) || players.length < 2 || players.length > 6 ||
+    !Array.isArray(players) || players.length < 1 || players.length > 6 ||
     !players.every((p) => typeof p === 'string' && UUID_RE.test(p)) ||
     new Set(players).size !== players.length
   ) {
@@ -40,6 +40,7 @@ Deno.serve(async (req) => {
     auth: { persistSession: false },
   });
 
+  // solo (1 gracz) to też mecz: serwer zna start, więc czas jest weryfikowany jak w pojedynku.
   // proste ograniczenie: w jednym pokoju nie częściej niż co 4 s (odliczanie trwa 3 s)
   const since = new Date(Date.now() - 4000).toISOString();
   const { count } = await supabase

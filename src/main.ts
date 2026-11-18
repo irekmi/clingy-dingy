@@ -39,6 +39,8 @@ import { ClimbView, fmtTime, MAX_PLAYERS, PLAYER_COLORS } from './game/render';
 import { footerLinksHtml, infoHtml, isInfoPage } from './pages';
 import { LocalTransport } from './net/localTransport';
 import { SupabaseTransport, createMatch, submitResult, supabaseConfigured } from './net/supabase';
+import { SoloTransport } from './net/soloTransport';
+import { getSolo, recordSolo, type SoloStats } from './solo';
 import type { PlayerMeta, RoomTransport } from './net/transport';
 import { cleanNick, esc, randomId, roomCode, ROOM_CODE_RE } from './util';
 
@@ -95,11 +97,11 @@ const MODE_NOTE = USE_SUPABASE
 const color = (slot: number) => PLAYER_COLORS[Math.max(0, slot) % PLAYER_COLORS.length];
 const secs = (ms: number) => (ms / 1000).toFixed(2);
 
-const belka = (sub: string) => `
+const belka = (sub: string, opp: [string, string] = ['UP TO', '6']) => `
   <header class="belka">
     <div class="tor me"><small>LANE</small>1</div>
     <div class="title"><h1>CLINGY DINGY</h1><span>${esc(sub)}</span></div>
-    <div class="tor opp"><small>UP TO</small>6</div>
+    <div class="tor opp"><small>${esc(opp[0])}</small>${esc(opp[1])}</div>
   </header>`;
 
 const TROPHY = `<svg width="28" height="28" viewBox="0 0 30 30" role="img" aria-label="Winner"><path d="M8 4 H22 V11 Q22 18 15 18 Q8 18 8 11 Z" fill="#f2c94c" stroke="#a37a12" stroke-width="2"></path><path d="M8 7 H4 Q4 13 9 13 M22 7 H26 Q26 13 21 13" fill="none" stroke="#f2c94c" stroke-width="2.5"></path><rect x="13" y="18" width="4" height="5" fill="#f2c94c"></rect><rect x="9" y="23" width="12" height="4" rx="1.5" fill="#f2c94c" stroke="#a37a12" stroke-width="1.5"></rect></svg>`;
@@ -192,7 +194,7 @@ function layoutHud() {
   let bottom = false;
   let left = '50%';
   let space = 0;
-  if (game.classList.contains('phone')) {
+  if (game.classList.contains('phone') || game.classList.contains('solo')) {
     width = window.innerWidth - 16;
   } else if (game.classList.contains('multi')) {
     const a = $('opp-area').getBoundingClientRect();
@@ -293,11 +295,19 @@ class Room {
   private overlayKey = '';
   private raceRowsKey = '';
   private offAccount: () => void;
+  private dead = false;
+  private starting = false;
+  private finishAt = 0;
+  private soloRes: { record: boolean; prevBest: number | null; stats: SoloStats } | null = null;
 
-  constructor(readonly code: string) {
+  /** `solo`: one-player run (no room, no opponents) – starts at once and can be retried endlessly */
+  constructor(
+    readonly code: string,
+    readonly solo = false,
+  ) {
     this.route = routeFor(`lobby-${code}`);
     this.me = { id: PLAYER_ID, nick: getNick(), ready: null, joinedAt: Date.now(), acct: !!getAccount() };
-    this.t = USE_SUPABASE ? new SupabaseTransport(code) : new LocalTransport(code);
+    this.t = solo ? new SoloTransport() : USE_SUPABASE ? new SupabaseTransport(code) : new LocalTransport(code);
     this.t.on('start', (p) => this.onStart(p));
     this.t.on('pos', (p) => this.onPos(p));
     this.t.on('finish', (p) => this.onFinish(p));
@@ -306,6 +316,7 @@ class Room {
       .connect(this.me)
       .then(() => {
         this.connected = true;
+        if (this.solo) this.startSolo();
         this.refresh();
       })
       .catch((e) => {
@@ -319,11 +330,15 @@ class Room {
     });
     window.addEventListener('keydown', this.onKey);
     $('panel-me').addEventListener('pointerdown', this.onPointer);
+    $('game').classList.toggle('solo', solo);
     meView.reset();
     this.refresh();
   }
 
   destroy() {
+    this.dead = true;
+    $('game').classList.remove('solo');
+    $('hud-caps').innerHTML = '';
     window.removeEventListener('keydown', this.onKey);
     $('panel-me').removeEventListener('pointerdown', this.onPointer);
     this.offAccount();
@@ -369,14 +384,26 @@ class Room {
     if (this.inMatch() && this.phase !== 'results') {
       for (const [id, o] of this.opps) if (!present.has(id)) o.left = true;
       const remaining = [...this.opps.values()].filter((o) => !o.left).length;
-      if (this.phase === 'countdown' && remaining === 0) this.phase = 'lobby';
+      if (this.phase === 'countdown' && remaining === 0 && !this.solo) this.phase = 'lobby';
     }
     this.maybeStart();
     this.maybeResults();
     this.refresh();
   }
 
+  /** Solo: no lobby – every run (first and retries) is a fresh match, created on the server when online. */
+  private startSolo() {
+    if (!this.solo || this.dead || this.starting || (this.phase !== 'lobby' && this.phase !== 'results')) return;
+    this.starting = true;
+    void (async () => {
+      const m = (USE_SUPABASE ? await createMatch(this.code, [this.me.id]) : null) ?? randomId();
+      this.starting = false;
+      if (!this.dead) this.onStart({ m, p: [this.me.id] });
+    })();
+  }
+
   private toggleReady() {
+    if (this.solo) return this.startSolo();
     if (!this.inRoom() || (this.phase !== 'lobby' && this.phase !== 'results')) return;
     this.me = { ...this.me, ready: this.me.ready ? null : randomId() };
     this.t.setMeta(this.me);
@@ -474,7 +501,7 @@ class Room {
     else if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) {
       if (this.phase === 'lobby' || this.phase === 'results') {
         e.preventDefault();
-        this.toggleReady();
+        this.toggleReady(); // solo: "try again"
       }
       return;
     }
@@ -517,6 +544,8 @@ class Room {
     const ms = this.sim.finishedAt!;
     this.myMs = ms;
     this.phase = 'finished';
+    this.finishAt = performance.now();
+    if (this.solo) this.soloRes = recordSolo(ms);
     this.sendPos(this.sim, ms, performance.now());
     this.t.send('finish', { m: this.matchId, id: this.me.id, ms, inputs: this.inputs });
     if (USE_SUPABASE) {
@@ -543,6 +572,7 @@ class Room {
 
   private maybeResults() {
     if (this.phase !== 'finished') return;
+    if (this.solo && performance.now() - this.finishAt < 2200) return; // let the climber celebrate first
     if (![...this.opps.values()].every((o) => o.ms !== null || o.left)) return;
     this.phase = 'results';
     // ranking pokoju (sesja): najlepszy czas, wygrane, rozegrane rundy
@@ -629,7 +659,11 @@ class Room {
     );
 
     const shown = this.shownOpps();
-    syncOppPanels(shown.length ? shown : ['__empty'], inMatch && shown.length >= 3);
+    syncOppPanels(this.solo ? [] : shown.length ? shown : ['__empty'], inMatch && shown.length >= 3);
+    if (this.solo && this.phase === 'finished') {
+      this.maybeResults();
+      if ((this.phase as Phase) === 'results') this.refresh();
+    }
     for (const [id, panel] of oppPanels) {
       const o = this.opps.get(id);
       const pl = this.players.find((p) => p.id === id);
@@ -665,6 +699,11 @@ class Room {
     $('hud').classList.toggle('hidden', !show);
     if (!show) return;
     const myTime = this.myMs ?? (this.phase === 'race' ? t : 0);
+    if (this.solo) {
+      setText('hud-time', secs(myTime));
+      this.updateSoloCaps(disp);
+      return;
+    }
     const oppTime = (o: OppState) => o.ms ?? (o.recvAt > 0 ? o.elapsed + (now - o.recvAt) : 0);
     // po prawej: prowadzący spośród przeciwników
     let leaderId = '';
@@ -738,6 +777,22 @@ class Room {
   }
 
   private capsKey = '';
+  /** Solo HUD: the height and the personal best as two capsules. */
+  private updateSoloCaps(disp: SimState) {
+    const box = $('hud-caps');
+    const best = getSolo().best;
+    const key = `solo|${best}`;
+    if (this.capsKey !== key) {
+      this.capsKey = key;
+      box.style.setProperty('--cols', '2');
+      box.style.setProperty('--rows', '1');
+      $('game').style.setProperty('--caps-h', '30px');
+      box.innerHTML = `<div class="cap mine" style="background:${color(0)};--c:0;--r:0"><b class="pos">▲</b><span class="cn">Height</span><span class="cm" id="solo-m">0 m</span></div>
+        <div class="cap" style="background:#3a3d4d;--c:1;--r:0"><b class="pos">★</b><span class="cn">Best</span><span class="cm">${best === null ? '—' : secs(best) + ' s'}</span></div>`;
+    }
+    setText('solo-m', `${disp.hold} / ${CFG.holds} m`);
+  }
+
   private capRank = new Map<string, number>();
 
   /** Phone: one capsule per player, sliding into place as the lead changes. */
@@ -823,6 +878,7 @@ class Room {
       case 'race':
         return performance.now() - this.goAt < 700 ? '<div class="count go">START!</div>' : '';
       case 'finished': {
+        if (this.solo) return `<div class="banner"><span>Summit! <b>${fmtTime(this.myMs!)}</b></span></div>`;
         const waiting = [...this.opps.values()].filter((o) => o.ms === null && !o.left).length;
         return `<div class="banner"><span>Summit! <b>${fmtTime(this.myMs!)}</b> – waiting for ${waiting > 1 ? `${waiting} players` : 'your opponent'}…</span></div>`;
       }
@@ -944,7 +1000,51 @@ class Room {
     return '';
   }
 
+  /** Solo: the result of a run next to the personal best, the latest attempts, retry. */
+  private soloHtml(): string {
+    const results = this.phase === 'results' && this.myMs !== null && this.soloRes;
+    if (!results) {
+      return `<div class="dim"></div><div class="studio">${belka('solo run', ['PLAYERS', '1'])}<p class="hint">${this.error ? `<span class="err">${esc(this.error)}</span>` : 'Get ready…'}</p></div>`;
+    }
+    const r = this.soloRes!;
+    const ms = this.myMs!;
+    const best = r.stats.best ?? ms;
+    let mid = `<div class="vs"><small>first run</small><b>★</b></div>`;
+    if (r.prevBest !== null) {
+      mid = r.record
+        ? `<div class="vs"><small>faster by</small><b>${secs(r.prevBest - ms)} s</b></div>`
+        : `<div class="vs"><small>off best by</small><b>${secs(ms - best)} s</b></div>`;
+    }
+    const recent = r.stats.recent
+      .map((t, i) => `<tr class="${i === 0 ? 'mine' : ''} ${t === best ? 'gold' : ''}"><td class="pl">${r.stats.attempts - i}.</td><td class="s">${i === 0 ? 'this run' : ''}${t === best ? (i === 0 ? ' · ' : '') + 'personal best' : ''}</td><td class="t">${secs(t)} s</td></tr>`)
+      .join('');
+    const head = `<div class="result-banner ${r.record ? 'win' : 'draw'}">${r.record ? 'NEW RECORD!' : 'SUMMIT!'}</div>${r.record ? confettiHtml() : ''}`;
+    const cards = `<section class="cards" aria-label="Result">
+      <div class="pcard slot${r.record ? ' winner' : ''}" style="--c:${color(0)}">
+        <div class="lbl"><span>RUN #${r.stats.attempts} · ${esc(this.me.nick.toUpperCase())}</span>${r.record ? TROPHY : ''}</div>
+        <span class="time">${fmtTime(ms)}</span>
+        <span class="sub">perfect ${this.sim.perfects}/${CFG.holds}${this.sim.errors ? ` · mistakes ${this.sim.errors}` : ''}</span>${this.verifyHtml()}</div>
+      ${mid}
+      <div class="pcard slot" style="--c:#c9a227">
+        <div class="lbl"><span>PERSONAL BEST</span></div>
+        <span class="time">${fmtTime(best)}</span>
+        <span class="sub">on this device</span></div></section>`;
+    const acct = this.accountLine();
+    return `<div class="dim"></div><div class="studio">
+      ${belka(`solo run · attempt ${r.stats.attempts}`, ['PLAYERS', '1'])}
+      ${head}
+      ${cards}
+      <div class="panels"><div class="tbl"><h2>LAST ATTEMPTS</h2><table>${recent}</table></div></div>
+      <section class="actions">
+        <div class="abar"><button class="btn green grow" data-action="retry">Try again</button><button class="btn ghost" data-action="leave">Menu</button></div>
+        <p class="hint">Space = try again</p>
+        ${acct ? `<p class="hint small">${acct}</p>` : ''}
+      </section>
+    </div>`;
+  }
+
   private studioHtml(): string {
+    if (this.solo) return this.soloHtml();
     const results = this.phase === 'results' && this.myMs !== null;
     const full = !this.inRoom();
     const a = this.active();
@@ -999,7 +1099,7 @@ class Room {
   }
 
   handleAction(action: string, el: HTMLElement) {
-    if (action === 'ready') this.toggleReady();
+    if (action === 'ready' || action === 'retry') this.toggleReady();
     else if (action === 'leave') location.hash = '#/';
     else if (action === 'copy') {
       const link = `${location.origin}${location.pathname}${location.search}#/r/${this.code}`;
@@ -1186,6 +1286,10 @@ function menuHtml(): string {
         <span class="name">Free lanes</span><span class="sub">Create a room and share the link – up to ${MAX_PLAYERS} players.</span></div>
     </section>
     <section class="actions">
+      <div class="abar solo-bar">
+        <button class="btn green grow" data-action="solo">Solo run</button>
+        <span class="solo-best">${getSolo().best === null ? 'Beat the clock on your own – set your record' : `Your record: <b>${secs(getSolo().best!)} s</b> · ${getSolo().attempts} ${getSolo().attempts === 1 ? 'run' : 'runs'}`}</span>
+      </div>
       <div class="abar">
         <button class="btn blue grow" data-action="create">Create room</button>
         <span class="or">or</span>
@@ -1255,6 +1359,10 @@ async function menuAction(action: string) {
     case 'create':
       readNick();
       location.hash = `#/r/${roomCode()}`;
+      return;
+    case 'solo':
+      readNick();
+      location.hash = '#/solo';
       return;
     case 'join': {
       const input = document.getElementById('join-code') as HTMLInputElement | null;
@@ -1409,7 +1517,12 @@ let room: Room | null = null;
 
 function route() {
   const m = location.hash.match(/^#\/r\/([A-Za-z0-9]{4,8})$/);
-  if (m) {
+  if (location.hash === '#/solo') {
+    if (room?.solo) return;
+    room?.destroy();
+    room = new Room(roomCode(), true);
+    if (import.meta.env.DEV) (window as unknown as { __room: Room }).__room = room;
+  } else if (m) {
     const code = m[1].toUpperCase();
     if (room?.code === code) return;
     room?.destroy();
