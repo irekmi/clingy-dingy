@@ -2408,3 +2408,12 @@ button.chalk-chip[aria-expanded='true'] { border-color: var(--gold); }
 @media (prefers-reduced-motion: reduce) {
   .spin { animation-duration: 2.4s; }
 }
+
+/* not enough chalk: one line with a progress bar (no extra paragraph, no scrolling) */
+.need-bar { position: relative; height: 44px; border-radius: 12px; overflow: hidden; background: var(--ink); border: 2px solid #5b6070; }
+.need-bar > i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, rgba(242, 201, 76, 0.35), rgba(242, 201, 76, 0.6)); border-right: 2px solid var(--gold); }
+.need-bar > i[style='width:0%'] { border-right: 0; }
+.need-bar > span { position: relative; height: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 15px; font-weight: 900; color: #f4e3b0; font-variant-numeric: tabular-nums; }
+.need-bar .chalk-ico { width: 18px; height: 18px; }
+.win-head > span { display: flex; flex-direction: column; gap: 1px; }
+.win-head small { font-size: 11px; font-weight: 800; color: var(--gold); }

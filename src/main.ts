@@ -1433,8 +1433,9 @@ function victoryActionHtml(): string {
     }
     return `<div class="win-action"><button class="btn gold" data-action="ed-unlock">Unlock for ${CHALK_ICO} ${CELEB_PRICE}</button>${extra}</div>`;
   }
-  return `<div class="win-action"><button class="btn need" disabled>${CHALK_ICO} ${CELEB_PRICE} · need ${CELEB_PRICE - w.chalk} more</button>
-    ${note('Win races to earn chalk: +10 for a win, +5 for every extra climber in the room.')}${extra}</div>`;
+  const pct = Math.min(100, Math.round((w.chalk / CELEB_PRICE) * 100));
+  return `<div class="win-action"><div class="need-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${CELEB_PRICE}" aria-valuenow="${w.chalk}" aria-label="Chalk towards ${esc(name)}" title="${CELEB_PRICE - w.chalk} more to unlock">
+    <i style="width:${pct}%"></i><span>${LOCK}${CHALK_ICO}${w.chalk} / ${CELEB_PRICE} chalk</span></div>${extra}</div>`;
 }
 
 function victoryHtml(): string {
@@ -1446,7 +1447,8 @@ function victoryHtml(): string {
       <span class="thumb"><canvas class="celeb-cv" data-c="${c}"></canvas>${owned ? '' : `<span class="lock">${LOCK}</span>`}</span>
       <span class="wc-txt"><b>${CELEB_NAMES[c]}</b>${tag}</span></button>`;
   }).join('');
-  return `<div class="win-head"><span>Your move at the top after a win.</span>${chalkChip()}</div>
+  const earn = getAccount() ? '<small>Earn chalk: +10 per win, +5 per extra climber</small>' : '';
+  return `<div class="win-head"><span>Your move at the top after a win.${earn}</span>${chalkChip()}</div>
     <div class="win-grid">${cards}</div>${victoryActionHtml()}`;
 }
 
