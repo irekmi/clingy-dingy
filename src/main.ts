@@ -331,12 +331,14 @@ class Room {
     window.addEventListener('keydown', this.onKey);
     $('panel-me').addEventListener('pointerdown', this.onPointer);
     $('game').classList.toggle('solo', solo);
+    meView.playWidth = solo ? 520 : Infinity;
     meView.reset();
     this.refresh();
   }
 
   destroy() {
     this.dead = true;
+    meView.playWidth = Infinity;
     $('game').classList.remove('solo');
     $('hud-caps').innerHTML = '';
     window.removeEventListener('keydown', this.onKey);

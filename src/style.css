@@ -1607,8 +1607,7 @@ button:disabled {
 
 /* ---------- solo run: one centred wall, no opponents ---------- */
 .game.solo .split {
-  grid-template-columns: minmax(0, 520px);
-  justify-content: center;
+  grid-template-columns: minmax(0, 1fr);
 }
 .game.solo .opp-area,
 .game.solo .hud-p,

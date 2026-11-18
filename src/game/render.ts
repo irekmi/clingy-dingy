@@ -597,6 +597,8 @@ export class ClimbView {
   private motes = Array.from({ length: 16 }, (_, i) => ({ x: rnd(7, i, 1), y: rnd(7, i, 2), s: 0.3 + rnd(7, i, 3) * 0.7, p: rnd(7, i, 4) * 6.28 }));
   /** skala: piksele CSS na jednostkę projektu */
   scale = 1;
+  /** Max width (CSS px) of the playable column; a wider canvas shows more of the hall around it (solo on desktop). */
+  playWidth = Infinity;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -737,7 +739,7 @@ export class ClimbView {
 
   draw(v: ClimberView, now: number, dt: number) {
     const { ctx } = this;
-    const k = Math.min(this.h / 720, this.w / 360);
+    const k = Math.min(this.h / 720, Math.min(this.w, this.playWidth) / 360);
     this.scale = k;
     const Hd = this.h / k;
     const Wd = this.w / k;
@@ -857,6 +859,13 @@ export class ClimbView {
       if (top > camBg + Hd) continue;
       drawWindow(ctx, cx - 304, top, 0);
       drawWindow(ctx, cx + 170, top, 1);
+      // wide screens: the hall goes on to both sides
+      for (let j = 1; j <= Math.ceil(Wd / 2 / 260) + 1; j++) {
+        const lx = cx - 304 - j * 260;
+        const rx = cx + 170 + j * 260;
+        if (lx + 134 > 0) drawWindow(ctx, lx, top, j % 2);
+        if (rx < Wd) drawWindow(ctx, rx, top, (j + 1) % 2);
+      }
     }
     ctx.restore();
 
@@ -1025,8 +1034,11 @@ export class ClimbView {
       ctx.textBaseline = 'alphabetic';
     }
 
-    // materace
-    for (const px of [cx - 170, cx + 4]) {
+    // materace (on wide screens the mats run along the whole floor)
+    const mats = [cx - 170, cx + 4];
+    for (let j = 1; j <= Math.ceil(Wd / 2 / 170); j++) mats.push(cx - 170 - j * 170, cx + 4 + j * 170);
+    for (const px of mats) {
+      if (px + 166 < 0 || px > Wd) continue;
       roundRect(ctx, px, PAD_TOP, 166, 46, 9);
       ctx.fillStyle = '#4a4a50';
       ctx.fill();
@@ -1100,6 +1112,20 @@ export class ClimbView {
       g.addColorStop(1, `rgba(229, 72, 77, ${0.45 * (1 - age / 380)})`);
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, Wd, Hd);
+    }
+
+    // wide screens: the hall beside the playable column is dimmed a little, so the eye stays on the wall
+    if (Number.isFinite(this.playWidth) && this.w > this.playWidth + 4) {
+      const edge = (Wd - this.playWidth / k) / 2;
+      if (edge > 0) {
+        for (const left of [true, false]) {
+          const g = left ? ctx.createLinearGradient(0, 0, edge, 0) : ctx.createLinearGradient(Wd, 0, Wd - edge, 0);
+          g.addColorStop(0, 'rgba(20, 18, 28, 0.42)');
+          g.addColorStop(1, 'rgba(20, 18, 28, 0)');
+          ctx.fillStyle = g;
+          ctx.fillRect(left ? 0 : Wd - edge, 0, edge, Hd);
+        }
+      }
     }
 
     // chalk dust drifting up over the wall (screen space)
