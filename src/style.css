@@ -2415,5 +2415,11 @@ button.chalk-chip[aria-expanded='true'] { border-color: var(--gold); }
 .need-bar > i[style='width:0%'] { border-right: 0; }
 .need-bar > span { position: relative; height: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 15px; font-weight: 900; color: #f4e3b0; font-variant-numeric: tabular-nums; }
 .need-bar .chalk-ico { width: 18px; height: 18px; }
-.win-head > span { display: flex; flex-direction: column; gap: 1px; }
 .win-head small { font-size: 11px; font-weight: 800; color: var(--gold); }
+
+/* editor header: Cancel / Save on the right; Random + Reset small in the bottom-right of LOOK */
+.sheet-head .ed-title.left { text-align: left; padding-left: 6px; }
+.ed-tools { margin-top: auto; display: flex; justify-content: flex-end; gap: 6px; }
+/* the balance chip stays on one line */
+.win-head > span:first-child { display: flex; flex-direction: column; gap: 1px; }
+.win-head > .chalk-chip { display: inline-flex; flex-direction: row; white-space: nowrap; flex: none; }

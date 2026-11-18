@@ -1457,13 +1457,13 @@ function editorHtml(): string {
   const v = editor.tab === 'victory';
   const caption = v ? `▶ ${CELEB_NAMES[editor.sel]} · ${ownsCeleb(editor.sel) ? 'preview' : 'locked preview'}` : esc(nick);
   return `<div class="dim"></div><div class="studio sheet-wrap"><div class="sheet sheet-editor" role="dialog" aria-label="Your climber">
-    <div class="sheet-head"><button class="btn small ghost" data-action="ed-back">← Back</button><span class="ed-title">YOUR CLIMBER</span><button class="btn small blue" data-action="ed-random">Random</button></div>
+    <div class="sheet-head"><span class="ed-title left">YOUR CLIMBER</span><button class="btn small ghost" data-action="ed-back" title="Close without saving (Esc)">Cancel</button><button class="btn small green" data-action="ed-save">Save</button></div>
     <div class="editor">
       <div class="editor-preview"><div class="floor"></div><canvas id="climber-cv" aria-label="Your climber"></canvas><span class="caption" style="border-color:${color(0)}">${caption}</span></div>
       <div class="b-card ed-card">
         <div class="seg" role="tablist"><button role="tab" aria-selected="${!v}" data-action="ed-tab" data-tab="look">LOOK</button><button role="tab" aria-selected="${v}" data-action="ed-tab" data-tab="victory">VICTORY</button></div>
         ${v ? victoryHtml() : lookHtml()}
-        <div class="res-actions"><button class="btn green" data-action="ed-save">Save</button><button class="btn ghost" data-action="ed-reset">Reset</button></div>
+        ${v ? '' : '<div class="ed-tools"><button class="btn small ghost" data-action="ed-reset">Reset</button><button class="btn small blue" data-action="ed-random">Random</button></div>'}
       </div>
     </div></div></div>`;
 }
