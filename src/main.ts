@@ -35,8 +35,8 @@ import {
   type LeaderRow,
 } from './account';
 import { setAdsVisible } from './ads';
-import { ClimbView, fmtTime, MAX_PLAYERS, PLAYER_COLORS } from './game/render';
-import { footerLinksHtml, infoHtml, isInfoPage } from './pages';
+import { ClimbView, MAX_PLAYERS, PLAYER_COLORS, PLAYER_HAIR } from './game/render';
+import { INFO_LINKS, infoHtml, isInfoPage } from './pages';
 import { LocalTransport } from './net/localTransport';
 import { SupabaseTransport, createMatch, submitResult, supabaseConfigured } from './net/supabase';
 import { SoloTransport } from './net/soloTransport';
@@ -104,7 +104,45 @@ const belka = (sub: string, opp: [string, string] = ['UP TO', '6']) => `
     <div class="tor opp"><small>${esc(opp[0])}</small>${esc(opp[1])}</div>
   </header>`;
 
-const TROPHY = `<svg width="28" height="28" viewBox="0 0 30 30" role="img" aria-label="Winner"><path d="M8 4 H22 V11 Q22 18 15 18 Q8 18 8 11 Z" fill="#f2c94c" stroke="#a37a12" stroke-width="2"></path><path d="M8 7 H4 Q4 13 9 13 M22 7 H26 Q26 13 21 13" fill="none" stroke="#f2c94c" stroke-width="2.5"></path><rect x="13" y="18" width="4" height="5" fill="#f2c94c"></rect><rect x="9" y="23" width="12" height="4" rx="1.5" fill="#f2c94c" stroke="#a37a12" stroke-width="1.5"></rect></svg>`;
+/** 1st, 2nd, 3rd… */
+const ord = (n: number) => `${n}${['TH', 'ST', 'ND', 'RD'][n % 10 > 3 || Math.floor((n % 100) / 10) === 1 ? 0 : n % 10]}`;
+
+/** avatar: hair colour (background) + shirt (bottom stripe), the colours of the player's look */
+const ava = (slot: number, sm = false) =>
+  `<span class="ava${sm ? ' sm' : ''}" style="--shirt:${color(slot)};--hair:${PLAYER_HAIR[Math.max(0, slot) % PLAYER_HAIR.length]}"></span>`;
+
+const svg = (inner: string, size = 20) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+const ICON_TROPHY = svg('<path d="M8 4h8v6a4 4 0 0 1-8 0z"/><path d="M8 6H4a3 3 0 0 0 4 4M16 6h4a3 3 0 0 1-4 4M12 14v4M8 20h8"/>');
+const ICON_HELP = svg('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>');
+const ICON_INFO = svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>', 18);
+
+/** a note for guests (no session); nothing for a logged-in player */
+const guestNote = (text: string) =>
+  accountsEnabled && !getAccount()
+    ? `<div class="guest-note">${ICON_INFO}<span>${esc(text)}</span><a role="button" tabindex="0" data-action="view-login">Log in</a></div>`
+    : '';
+
+/** touch pads disappear once the player has finished three climbs */
+const PADS_KEY = 'cd_pads_v1';
+function padsDone(): number {
+  try {
+    return Number(localStorage.getItem(PADS_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+function bumpPads() {
+  try {
+    localStorage.setItem(PADS_KEY, String(padsDone() + 1));
+  } catch {
+    /* ignore */
+  }
+}
+
+function setTextEl(el: HTMLElement, text: string) {
+  if (el.textContent !== text) el.textContent = text;
+}
 
 function setText(id: string, text: string) {
   const el = $(id);
@@ -119,12 +157,14 @@ const IDLE_ROUTE = routeFor('clingy-dingy-menu');
 interface OppPanel {
   el: HTMLDivElement;
   tag: HTMLDivElement;
+  tagHtml: string;
   view: ClimbView;
 }
 const oppPanels = new Map<string, OppPanel>();
 
 /** Phone portrait: only my own wall; the others are shown as ranking capsules. */
 const PHONE = window.matchMedia('(max-width: 640px)');
+$('game').classList.toggle('touch', window.matchMedia('(pointer: coarse)').matches);
 
 /** Tworzy/usuwa ściany przeciwników (1–5) i układa je w siatce. */
 function syncOppPanels(ids: string[], standings = false) {
@@ -150,10 +190,10 @@ function syncOppPanels(ids: string[], standings = false) {
       const cv = document.createElement('canvas');
       cv.setAttribute('aria-label', 'Opponent wall');
       const tag = document.createElement('div');
-      tag.className = 'tag';
+      tag.className = 'race-tag';
       el.append(cv, tag);
       grid.append(el);
-      p = { el, tag, view: new ClimbView(cv) };
+      p = { el, tag, tagHtml: '', view: new ClimbView(cv) };
       oppPanels.set(id, p);
     }
     grid.append(p.el); // kolejność jak w ids
@@ -189,26 +229,16 @@ let hudLayoutKey = '';
  */
 function layoutHud() {
   const game = $('game');
-  const hud = $('hud');
   let width: number;
   let bottom = false;
   let left = '50%';
   let space = 0;
   if (game.classList.contains('phone') || game.classList.contains('solo')) {
     width = window.innerWidth - 16;
-  } else if (game.classList.contains('multi')) {
-    const a = $('opp-area').getBoundingClientRect();
-    width = Math.min(328, Math.floor(a.width - 16));
-    left = `${Math.round(a.left + a.width / 2)}px`;
-    space = hud.classList.contains('hidden') ? 0 : hud.offsetHeight + 16;
   } else {
-    const m = meView.metrics;
-    const gap = m.width + 4 - m.wallPx;
-    if (gap >= 230) width = Math.min(328, Math.floor(gap - 12));
-    else {
-      bottom = true;
-      width = Math.min(328, window.innerWidth - 24);
-    }
+    const a = $('panel-me').getBoundingClientRect();
+    width = 170;
+    left = `${Math.round(a.left + a.width / 2)}px`;
   }
   const key = `${width}|${bottom}|${left}|${space}`;
   if (key === hudLayoutKey) return;
@@ -341,6 +371,9 @@ class Room {
     meView.playWidth = Infinity;
     $('game').classList.remove('solo');
     $('hud-caps').innerHTML = '';
+    this.removeCount();
+    this.meCap?.remove();
+    $('tap-pads').style.display = 'none';
     window.removeEventListener('keydown', this.onKey);
     $('panel-me').removeEventListener('pointerdown', this.onPointer);
     this.offAccount();
@@ -515,7 +548,13 @@ class Room {
   private onPointer = (e: PointerEvent) => {
     if (this.phase !== 'race' && this.phase !== 'countdown') return;
     const r = $('panel-me').getBoundingClientRect();
-    this.onInput(e.clientX - r.left < r.width / 2 ? 0 : 1, e.timeStamp);
+    const side: Side = e.clientX - r.left < r.width / 2 ? 0 : 1;
+    const pad = document.querySelector<HTMLElement>(`#tap-pads i.${side === 0 ? 'l' : 'r'}`);
+    if (pad) {
+      pad.classList.add('on');
+      window.setTimeout(() => pad.classList.remove('on'), 150);
+    }
+    this.onInput(side, e.timeStamp);
   };
 
   private onInput(side: Side, ts: number) {
@@ -548,6 +587,7 @@ class Room {
     this.phase = 'finished';
     this.finishAt = performance.now();
     if (this.solo) this.soloRes = recordSolo(ms);
+    bumpPads();
     this.sendPos(this.sim, ms, performance.now());
     this.t.send('finish', { m: this.matchId, id: this.me.id, ms, inputs: this.inputs });
     if (USE_SUPABASE) {
@@ -666,6 +706,7 @@ class Room {
       this.maybeResults();
       if ((this.phase as Phase) === 'results') this.refresh();
     }
+    const lr = inMatch ? this.liveRanks(disp) : null;
     for (const [id, panel] of oppPanels) {
       const o = this.opps.get(id);
       const pl = this.players.find((p) => p.id === id);
@@ -688,17 +729,29 @@ class Room {
         now,
         dt,
       );
-      const tagText = id === '__empty' ? '' : live ? `${o.nick} · ${o.left ? 'left' : o.ms !== null ? secs(o.ms) + ' s' : o.hold + ' m'}` : pl?.nick ?? '';
-      if (panel.tag.textContent !== tagText) panel.tag.textContent = tagText;
+      const rk = lr?.get(id);
+      const tagHtml =
+        id === '__empty'
+          ? ''
+          : live && rk !== undefined
+            ? `<span class="pos${rk === 0 ? ' lead' : ''}">${rk + 1}</span>${esc(o.nick)}<span class="h">${o.left ? 'left' : o.ms !== null ? `${secs(o.ms)} s` : `${o.hold}/${CFG.holds}`}</span>`
+            : esc(pl?.nick ?? '');
+      if (panel.tagHtml !== tagHtml) {
+        panel.tagHtml = tagHtml;
+        panel.tag.innerHTML = tagHtml;
+      }
       const bg = color(slot);
-      if (panel.tag.style.background !== bg) panel.tag.style.background = bg;
+      if (panel.tag.style.getPropertyValue('--c') !== bg) panel.tag.style.setProperty('--c', bg);
     }
     this.updateHud(now, t, disp);
+    this.updateCount(now);
+    this.updatePads();
   }
 
   private updateHud(now: number, t: number, disp: SimState) {
     const show = this.phase === 'countdown' || this.phase === 'race' || this.phase === 'finished';
     $('hud').classList.toggle('hidden', !show);
+    this.updateMeCap(disp, show);
     if (!show) return;
     const myTime = this.myMs ?? (this.phase === 'race' ? t : 0);
     if (this.solo) {
@@ -789,10 +842,13 @@ class Room {
       box.style.setProperty('--cols', '2');
       box.style.setProperty('--rows', '1');
       $('game').style.setProperty('--caps-h', '30px');
-      box.innerHTML = `<div class="cap mine" style="background:${color(0)};--c:0;--r:0"><b class="pos">▲</b><span class="cn">Height</span><span class="cm" id="solo-m">0 m</span></div>
+      box.innerHTML = `<div class="cap height mine" style="--c:0;--r:0"><i id="solo-bar"></i><b class="pos">▲</b><span class="cn">Height</span><span class="cm" id="solo-m">0 m</span></div>
         <div class="cap" style="background:#3a3d4d;--c:1;--r:0"><b class="pos">★</b><span class="cn">Best</span><span class="cm">${best === null ? '—' : secs(best) + ' s'}</span></div>`;
     }
     setText('solo-m', `${disp.hold} / ${CFG.holds} m`);
+    const w = `${(disp.hold / CFG.holds) * 100}%`;
+    const bar = $('solo-bar');
+    if (bar.style.width !== w) bar.style.width = w;
   }
 
   private capRank = new Map<string, number>();
@@ -857,6 +913,124 @@ class Room {
     });
   }
 
+  // ---------- v2: odliczanie, przyciski dotyku, kapsuła postępu ----------
+
+  private countEl: HTMLDivElement | null = null;
+  private countN = 0;
+  private countGo = false;
+  private meCap: HTMLDivElement | null = null;
+
+  /** place of every participant: finished (by time) first, then by height; ties keep the start order */
+  private liveRanks(disp: SimState): Map<string, number> {
+    const info = this.participants.map((id, i) => {
+      if (id === this.me.id) return { id, i, hold: disp.hold, ms: this.myMs, left: false };
+      const o = this.opps.get(id);
+      return { id, i, hold: o?.hold ?? 0, ms: o?.ms ?? null, left: !!o?.left };
+    });
+    info.sort((a, b) => Number(a.left) - Number(b.left) || (a.ms ?? Infinity) - (b.ms ?? Infinity) || b.hold - a.hold || a.i - b.i);
+    return new Map(info.map((p, k) => [p.id, k]));
+  }
+
+  private removeCount() {
+    this.countEl?.remove();
+    this.countEl = null;
+  }
+
+  /** The countdown disc is created once (so the ring drains smoothly for 3 s); only the digit is swapped. */
+  private updateCount(now: number) {
+    const counting = this.phase === 'countdown';
+    const going = this.phase === 'race' && now - this.goAt < 700 && !this.countGo && !!this.countEl;
+    if (!counting && !going) {
+      if (this.countEl && !this.countEl.classList.contains('go')) this.removeCount();
+      if (this.phase !== 'race' && this.phase !== 'finished') this.countGo = false;
+      return;
+    }
+    if (!this.countEl) {
+      const el = document.createElement('div');
+      el.className = 'count2';
+      el.setAttribute('aria-hidden', 'true');
+      el.innerHTML =
+        '<svg width="180" height="180" viewBox="0 0 180 180"><circle class="track" cx="90" cy="90" r="80"></circle><circle class="arc" cx="90" cy="90" r="80"></circle></svg><small>GET READY</small><b></b>';
+      $('game').append(el);
+      this.countEl = el;
+      this.countN = 0;
+      this.countGo = false;
+    }
+    const el = this.countEl;
+    const r = $('panel-me').getBoundingClientRect();
+    const left = `${Math.round(r.left + r.width / 2)}px`;
+    if (el.style.left !== left) el.style.left = left;
+    const restart = () => {
+      el.style.animation = 'none';
+      void el.offsetWidth;
+      el.style.animation = '';
+    };
+    if (counting) {
+      const n = Math.min(3, Math.max(1, Math.ceil((this.goAt - now) / 1000)));
+      if (n !== this.countN) {
+        this.countN = n;
+        const b = document.createElement('b');
+        b.textContent = String(n);
+        el.querySelector('b')!.replaceWith(b);
+        restart();
+      }
+    } else {
+      this.countGo = true;
+      el.classList.add('go');
+      el.querySelector('small')!.textContent = 'CLIMB!';
+      const b = document.createElement('b');
+      b.textContent = 'START!';
+      el.querySelector('b')!.replaceWith(b);
+      el.addEventListener('animationend', (e) => {
+        if (e.target !== el) return;
+        if (this.countEl === el) this.removeCount();
+        else el.remove();
+      });
+      window.setTimeout(() => {
+        if (this.countEl === el) this.removeCount();
+      }, 900);
+    }
+  }
+
+  /** touch pads (phone / touch solo): shown while climbing, hidden once the player has finished 3 climbs */
+  private updatePads() {
+    const show = (this.phase === 'countdown' || this.phase === 'race' || this.phase === 'finished') && padsDone() < 3;
+    const el = $('tap-pads');
+    const d = show ? '' : 'none';
+    if (el.style.display !== d) el.style.display = d;
+  }
+
+  /** my bottom capsule in rooms (not solo / phone): place, name and progress */
+  private updateMeCap(disp: SimState, show: boolean) {
+    const want = show && !this.solo && !PHONE.matches && this.inMatch();
+    if (!want) {
+      this.meCap?.remove();
+      this.meCap = null;
+      return;
+    }
+    if (!this.meCap) {
+      const el = document.createElement('div');
+      el.className = 'me-cap';
+      el.innerHTML = '<i></i><div><span class="pos"></span><span style="flex:1">You</span><span class="mh"></span></div>';
+      $('panel-me').append(el);
+      this.meCap = el;
+    }
+    const el = this.meCap;
+    const c = color(this.slotOf(this.me.id));
+    if (el.style.getPropertyValue('--me') !== c) {
+      el.style.setProperty('--me', c);
+      el.style.setProperty('--me-dark', `color-mix(in srgb, ${c} 40%, #14141c)`);
+    }
+    const rk = this.liveRanks(disp).get(this.me.id) ?? 0;
+    const pos = el.querySelector<HTMLElement>('.pos')!;
+    setTextEl(pos, String(rk + 1));
+    pos.classList.toggle('lead', rk === 0);
+    setTextEl(el.querySelector<HTMLElement>('.mh')!, `${disp.hold} / ${CFG.holds} m`);
+    const w = `${(disp.hold / CFG.holds) * 100}%`;
+    const bar = el.querySelector<HTMLElement>('i')!;
+    if (bar.style.width !== w) bar.style.width = w;
+  }
+
   // ---------- nakładki ----------
 
   refresh() {
@@ -873,16 +1047,13 @@ class Room {
         <button class="btn ghost" data-action="leave">Back</button></div></section></div>`;
     }
     switch (this.phase) {
-      case 'countdown': {
-        const n = Math.max(1, Math.ceil((this.goAt - performance.now()) / 1000));
-        return `<div class="count">${n}</div>`;
-      }
+      case 'countdown':
       case 'race':
-        return performance.now() - this.goAt < 700 ? '<div class="count go">START!</div>' : '';
+        return '';
       case 'finished': {
-        if (this.solo) return `<div class="banner"><span>Summit! <b>${fmtTime(this.myMs!)}</b></span></div>`;
+        if (this.solo) return `<div class="banner"><span>Summit! <b>${secs(this.myMs!)} s</b></span></div>`;
         const waiting = [...this.opps.values()].filter((o) => o.ms === null && !o.left).length;
-        return `<div class="banner"><span>Summit! <b>${fmtTime(this.myMs!)}</b> – waiting for ${waiting > 1 ? `${waiting} players` : 'your opponent'}…</span></div>`;
+        return `<div class="banner"><span>Summit! <b>${secs(this.myMs!)} s</b> – waiting for ${waiting > 1 ? `${waiting} players` : 'your opponent'}…</span></div>`;
       }
       default:
         return this.studioHtml();
@@ -894,115 +1065,33 @@ class Room {
     return this.phase === 'lobby' || this.phase === 'results';
   }
 
-  private readyBadge(p?: PlayerMeta) {
-    return p?.ready ? '<span class="badge ready">READY ✓</span>' : '<span class="badge wait">waiting…</span>';
-  }
-
-  private verifyHtml(): string {
-    if (!USE_SUPABASE) return '<span class="sub">local mode</span>';
+  private verifyPill(): string {
+    if (!USE_SUPABASE) return '';
     switch (this.verify) {
       case 'ok':
-        return '<span class="verified">verified ✓</span>';
+        return '<span class="pill ok">VERIFIED ✓</span>';
       case 'bad':
-        return '<span class="rejected">rejected by server ✖</span>';
+        return '<span class="pill bad">REJECTED BY SERVER</span>';
       case 'suspect':
-        return '<span class="rejected">under review – not ranked</span>';
+        return '<span class="pill bad">UNDER REVIEW · NOT RANKED</span>';
       case 'error':
-        return '<span class="rejected">could not save the result</span>';
+        return '<span class="pill bad">NOT SAVED</span>';
       default:
-        return '<span class="sub">server is checking…</span>';
+        return '<span class="pill muted">CHECKING…</span>';
     }
-  }
-
-  private lobbyCards(): string {
-    const a = this.active();
-    const sessionWins = (id: string) => this.session.get(id)?.wins ?? 0;
-    if (a.length <= 2) {
-      const opp = a.find((p) => p.id !== this.me.id);
-      const meCard = `<div class="pcard slot" style="--c:${color(this.slotOf(this.me.id))}"><div class="lbl"><span>YOU</span></div>
-        <div class="row"><span class="name">${esc(this.me.nick)}${this.me.acct ? '<span class="acct">ACCOUNT ✓</span>' : ''}</span>${this.readyBadge(this.me)}</div>
-        <span class="sub">Wins in room: ${sessionWins(this.me.id)}</span></div>`;
-      const oppCard = opp
-        ? `<div class="pcard slot" style="--c:${color(this.slotOf(opp.id))}"><div class="lbl"><span>OPPONENT</span></div>
-          <div class="row"><span class="name">${esc(opp.nick)}${opp.acct ? '<span class="acct">ACCOUNT ✓</span>' : ''}</span>${this.readyBadge(opp)}</div>
-          <span class="sub">Wins in room: ${sessionWins(opp.id)}</span></div>`
-        : `<div class="pcard empty"><div class="lbl"><span>OPPONENT</span></div>
-          <span class="name">Free lane</span><span class="sub">Share the link – up to ${MAX_PLAYERS} players can join.</span></div>`;
-      return `<section class="cards" aria-label="Players">${meCard}<div class="vs">VS</div>${oppCard}</section>`;
-    }
-    const cards = a.map((p) => {
-      const isMe = p.id === this.me.id;
-      return `<div class="pcard slot" style="--c:${color(this.slotOf(p.id))}"><div class="lbl"><span>${isMe ? 'YOU' : `LANE ${this.slotOf(p.id) + 1}`}</span></div>
-        <div class="row"><span class="name">${esc(p.nick)}${p.acct ? '<span class="acct">✓</span>' : ''}</span>${this.readyBadge(p)}</div>
-        <span class="sub">Wins: ${sessionWins(p.id)}</span></div>`;
-    });
-    if (a.length < MAX_PLAYERS) {
-      cards.push(`<div class="pcard free"><div class="lbl"><span>FREE SLOT</span></div><span class="sub">${MAX_PLAYERS - a.length} more ${MAX_PLAYERS - a.length === 1 ? 'player' : 'players'}</span></div>`);
-    }
-    return `<section class="cards many" aria-label="Players (${a.length}/${MAX_PLAYERS})">${cards.join('')}</section>`;
-  }
-
-  private resultCards(st: Standing[]): string {
-    // pojedynek 1 na 1: duże karty jak w projekcie 5C
-    const me = st.find((s) => s.me)!;
-    const op = st.find((s) => !s.me)!;
-    const meWin = st[0].me;
-    const opCard = (s: Standing) => {
-      const state = s.ms === null ? (s.left ? 'left the game' : '') : s.valid ? '<span class="verified">checked ✓</span>' : '<span class="rejected">result rejected ✖</span>';
-      return `<div class="pcard slot${!meWin ? ' winner' : ''}" style="--c:${color(s.slot)}">
-        <div class="lbl"><span>OPPONENT · ${esc(s.nick.toUpperCase())}</span>${!meWin ? TROPHY : ''}</div>
-        <span class="time">${s.ms === null ? '—' : fmtTime(s.ms)}</span>
-        <span class="sub">${s.ms !== null ? `perfect ${s.perfects}/${CFG.holds}` : ''}</span>${state}</div>`;
-    };
-    let mid = '<div class="vs">VS</div>';
-    if (op.ms !== null && op.valid && me.ms !== null && op.ms !== me.ms) {
-      mid = `<div class="vs"><small>${meWin ? 'faster by' : 'slower by'}</small><b>${secs(Math.abs(op.ms - me.ms))} s</b></div>`;
-    }
-    return `<section class="cards" aria-label="Results">
-      <div class="pcard slot${meWin ? ' winner' : ''}" style="--c:${color(me.slot)}">
-        <div class="lbl"><span>YOU · ${esc(me.nick.toUpperCase())}</span>${meWin ? TROPHY : ''}</div>
-        <span class="time">${fmtTime(me.ms!)}</span>
-        <span class="sub">perfect ${me.perfects}/${CFG.holds}</span>${this.verifyHtml()}</div>
-      ${mid}${opCard(op)}</section>`;
-  }
-
-  private roundTable(st: Standing[]): string {
-    const rows = st
-      .map((s, i) => {
-        const time = s.ms === null ? (s.left ? 'left' : '—') : s.valid ? `${secs(s.ms)} s` : 'rejected';
-        const extra = s.me ? this.verifyHtml().replace(/<[^>]+>/g, '') : s.ms !== null && s.valid ? `perfect ${s.perfects}` : '';
-        return `<tr class="${s.me ? 'mine' : ''} ${i === 0 && s.valid ? 'gold' : ''}"><td class="pl">${i + 1}.</td>
-          <td><span class="dot" style="background:${color(s.slot)}"></span>${esc(s.nick)}${s.me ? ' (Ty)' : ''}</td>
-          <td class="s">${esc(extra)}</td><td class="t">${time}</td></tr>`;
-      })
-      .join('');
-    return `<div class="tbl"><h2>ROUND ${this.round} RESULTS</h2><table>${rows}</table></div>`;
-  }
-
-  private sessionTable(): string {
-    const rows = [...this.session.entries()]
-      .sort((a, b) => b[1].wins - a[1].wins || (a[1].best ?? Infinity) - (b[1].best ?? Infinity))
-      .map(
-        ([id, r], i) => `<tr class="${id === this.me.id ? 'mine' : ''}"><td class="pl">${i + 1}.</td>
-          <td><span class="dot" style="background:${color(r.slot)}"></span>${esc(r.nick)}</td>
-          <td class="s">${r.wins} ${r.wins === 1 ? 'win' : 'wins'} · ${r.rounds} ${r.rounds === 1 ? 'round' : 'rounds'}</td>
-          <td class="t">${r.best === null ? '—' : `${secs(r.best)} s`}</td></tr>`,
-      )
-      .join('');
-    return `<div class="tbl"><h2>ROOM RANKING · BEST TIMES</h2>${rows ? `<table>${rows}</table>` : '<p class="empty">Nobody has finished a round yet.</p>'}</div>`;
   }
 
   private accountLine(): string {
     if (!accountsEnabled || !USE_SUPABASE) return '';
     const acc = getAccount();
-    if (!acc) return 'Playing as a guest – log in from the menu to get your times ranked.';
+    if (!acc) return '';
     if (this.myRecord?.best != null) {
       return `Your record: <b>${secs(this.myRecord.best)} s</b>${this.myRecord.place ? ` · rank <b>#${this.myRecord.place}</b>` : ''}`;
     }
     return '';
   }
 
-  /** Solo: the result of a run next to the personal best, the latest attempts, retry. */
+  /** Solo: the result of a run, the earlier attempts, retry. */
   private soloHtml(): string {
     const results = this.phase === 'results' && this.myMs !== null && this.soloRes;
     if (!results) {
@@ -1011,102 +1100,152 @@ class Room {
     const r = this.soloRes!;
     const ms = this.myMs!;
     const best = r.stats.best ?? ms;
-    let mid = `<div class="vs"><small>first run</small><b>★</b></div>`;
-    if (r.prevBest !== null) {
-      mid = r.record
-        ? `<div class="vs"><small>faster by</small><b>${secs(r.prevBest - ms)} s</b></div>`
-        : `<div class="vs"><small>off best by</small><b>${secs(ms - best)} s</b></div>`;
-    }
-    const recent = r.stats.recent
-      .map((t, i) => `<tr class="${i === 0 ? 'mine' : ''} ${t === best ? 'gold' : ''}"><td class="pl">${r.stats.attempts - i}.</td><td class="s">${i === 0 ? 'this run' : ''}${t === best ? (i === 0 ? ' · ' : '') + 'personal best' : ''}</td><td class="t">${secs(t)} s</td></tr>`)
+    const first = r.prevBest === null;
+    const big = 'style="font-size:13px;padding:4px 12px"';
+    const delta = first
+      ? `<span class="pill ready" ${big}>First run!</span>`
+      : r.record
+        ? `<span class="pill ready" ${big}>New best · −${secs(r.prevBest! - ms)} s</span>`
+        : `<span class="pill warn">+${secs(ms - best)} s off your best (${secs(best)} s)</span>`;
+    const earlier = r.stats.recent
+      .slice(1, 4)
+      .map((t) => `<span class="pill ${t === best ? 'best' : 'muted'}">${t === best ? '★ ' : ''}${secs(t)} s</span>`)
       .join('');
-    const head = `<div class="result-banner ${r.record ? 'win' : 'draw'}">${r.record ? 'NEW RECORD!' : 'SUMMIT!'}</div>${r.record ? confettiHtml() : ''}`;
-    const cards = `<section class="cards" aria-label="Result">
-      <div class="pcard slot${r.record ? ' winner' : ''}" style="--c:${color(0)}">
-        <div class="lbl"><span>RUN #${r.stats.attempts} · ${esc(this.me.nick.toUpperCase())}</span>${r.record ? TROPHY : ''}</div>
-        <span class="time">${fmtTime(ms)}</span>
-        <span class="sub">perfect ${this.sim.perfects}/${CFG.holds}${this.sim.errors ? ` · mistakes ${this.sim.errors}` : ''}</span>${this.verifyHtml()}</div>
-      ${mid}
-      <div class="pcard slot" style="--c:#c9a227">
-        <div class="lbl"><span>PERSONAL BEST</span></div>
-        <span class="time">${fmtTime(best)}</span>
-        <span class="sub">on this device</span></div></section>`;
     const acct = this.accountLine();
+    const guest = guestNote(r.record ? 'New record on this device – log in so it counts in the ranking.' : "Guest times don't count in the ranking.");
     return `<div class="dim"></div><div class="studio">
-      ${belka(`solo run · attempt ${r.stats.attempts}`, ['PLAYERS', '1'])}
-      ${head}
-      ${cards}
-      <div class="panels"><div class="tbl"><h2>LAST ATTEMPTS</h2><table>${recent}</table></div></div>
-      <section class="actions">
-        <div class="abar"><button class="btn green grow" data-action="retry">Try again</button><button class="btn ghost" data-action="leave">Menu</button></div>
-        <p class="hint">Space = try again</p>
-        ${acct ? `<p class="hint small">${acct}</p>` : ''}
-      </section>
-    </div>`;
+      ${r.record ? confettiHtml() : ''}
+      <div class="b-wrap">
+        <div class="result-banner ${r.record ? 'win' : 'draw'}">${r.record ? 'NEW RECORD!' : 'SUMMIT!'}</div>
+        <div class="b-card has-banner${r.record ? ' gold-ring' : ''}">
+          <div class="res-center">
+            <div><span class="res-label">SOLO RUN #${r.stats.attempts}</span> ${this.verifyPill()}</div>
+            <span class="res-time">${secs(ms)} s</span>
+            ${delta}
+            <div><span class="pill ok">PERFECT ${this.sim.perfects}/${CFG.holds}</span> ${this.sim.errors ? `<span class="pill bad">MISTAKES ${this.sim.errors}</span>` : ''}</div>
+          </div>
+          ${earlier && !first ? `<div class="earlier"><span>Earlier</span>${earlier}</div>` : ''}
+          <div class="res-actions">
+            <button class="btn green" data-action="retry">Try again <kbd>Space</kbd></button>
+            <button class="btn ghost" data-action="leave">Menu</button>
+          </div>
+          ${guest}
+          ${acct ? `<p class="room-status">${acct}</p>` : ''}
+        </div>
+      </div></div>`;
   }
 
   private studioHtml(): string {
     if (this.solo) return this.soloHtml();
     const results = this.phase === 'results' && this.myMs !== null;
-    const full = !this.inRoom();
+    const inRoom = this.inRoom();
+    const full = this.connected && !inRoom;
     const a = this.active();
     const alone = a.length < 2;
+    const readyN = a.filter((p) => p.ready).length;
 
-    let head = '';
-    let body = '';
+    const readyBtn = (label: string, pill = '') =>
+      !inRoom
+        ? ''
+        : this.me.ready
+          ? '<button class="btn green big outline-ok" data-action="ready">Ready ✓ &nbsp;(tap to cancel)</button>'
+          : `<button class="btn green big" data-action="ready" ${alone ? 'disabled' : ''}>${label}${pill}</button>`;
+
     if (results) {
       const st = this.standings();
       const place = st.findIndex((s) => s.me) + 1;
-      const first = st[0];
-      const draw = place > 1 && first.ms !== null && first.ms === this.myMs;
-      const label = place === 1 ? 'YOU WIN!' : draw ? 'DRAW' : st.length === 2 ? 'YOU LOSE' : `PLACE #${place}`;
-      const cls = place === 1 ? 'win' : draw ? 'draw' : 'lose';
-      head = `<div class="result-banner ${cls}">${label}</div>${place === 1 ? confettiHtml() : ''}`;
-      body =
-        st.length === 2
-          ? `${this.resultCards(st)}<div class="panels">${this.sessionTable()}</div>`
-          : `<div class="panels">${this.roundTable(st)}${this.sessionTable()}</div>`;
-    } else {
-      body = this.lobbyCards() + (this.session.size ? `<div class="panels">${this.sessionTable()}</div>` : '');
+      const draw = place > 1 && st[0].ms !== null && st[0].ms === this.myMs;
+      const label = place === 1 ? 'YOU WIN!' : draw ? 'DRAW' : `${ord(place)} PLACE`;
+      const cls = place === 1 ? 'win' : draw || place === 2 ? 'draw' : 'third';
+      const rows = st
+        .map((s, i) => {
+          const t = s.ms === null ? (s.left ? 'LEFT' : 'DNF') : `${secs(s.ms)} s`;
+          let v = '';
+          if (s.ms !== null) {
+            if (s.me) v = this.verify === 'ok' ? '<span class="v">✓</span>' : this.verify === 'bad' || this.verify === 'suspect' || this.verify === 'error' ? '<span class="v rej">✗</span>' : '';
+            else v = s.valid ? '<span class="v">✓</span>' : '<span class="v rej">✗</span>';
+          }
+          return `<div class="rank-row${i === 0 && s.valid ? ' first' : ''}${s.me ? ' me' : ''}"><span class="pos">${i + 1}</span>${ava(s.slot, true)}<span class="nm">${esc(s.nick)}${s.me ? ' (you)' : ''}</span>${v}<span class="t">${t}</span></div>`;
+        })
+        .join('');
+      const tally = this.session.size
+        ? `<div class="room-tally"><span>This room · ${this.round} ${this.round === 1 ? 'race' : 'races'}</span>${[...this.session.entries()]
+            .sort((x, y) => y[1].wins - x[1].wins || (x[1].best ?? Infinity) - (y[1].best ?? Infinity))
+            .map(([id, r]) => `<span class="w" style="--shirt:${color(r.slot)}"><i></i>${id === this.me.id ? 'You' : esc(r.nick)} <b>${r.wins}</b></span>`)
+            .join('')}</div>`
+        : '';
+      const acct = this.accountLine();
+      return `<div class="dim"></div><div class="studio">
+        ${place === 1 ? confettiHtml() : ''}
+        <div class="b-wrap">
+          <div class="result-banner ${cls}">${label}</div>
+          <div class="b-card has-banner" style="gap:8px">
+            ${rows}${tally}
+            <div class="res-actions">
+              ${readyBtn('Rematch', `<span class="pill dark" style="margin-left:10px">${readyN}/${a.length} ready</span>`) || ''}
+              <button class="btn ghost" data-action="leave">Leave</button>
+            </div>
+            ${guestNote('Your time counts in this room, but not in the global ranking.')}
+            ${acct ? `<p class="room-status">${acct}</p>` : ''}
+          </div>
+        </div></div>`;
     }
 
-    const readyLabel = this.me.ready ? (results ? 'Cancel rematch' : 'Cancel ready') : results ? 'Rematch!' : 'Ready!';
-    const readyBtn = full
-      ? ''
-      : `<button class="btn ${this.me.ready ? 'green' : 'blue'} grow" data-action="ready" ${alone ? 'disabled' : ''}>${readyLabel}</button>`;
-    const middle = `<div class="code-box"><div class="lbl"><small>ROOM CODE · ${a.length}/${MAX_PLAYERS}</small><b>${esc(this.code)}</b></div><button data-action="copy">Copy link</button></div>`;
-
-    const hints: string[] = [];
-    if (!this.connected) hints.push('Connecting…');
-    if (full) hints.push(`<span class="err">The room is full (max ${MAX_PLAYERS} players).</span>`);
-    else if (alone) hints.push(`Share the link – up to ${MAX_PLAYERS} players can join. The round starts when everyone is ready.`);
-    else {
-      const notReady = a.filter((p) => !p.ready).length;
-      hints.push(notReady ? `Starts when everyone is ready (waiting: ${notReady}) · Space = ready` : 'Starting!');
-    }
-    if (this.phase === 'lobby' && this.participants.length && !this.participants.includes(this.me.id)) hints.push('A round is in progress – you will join the next one.');
-    const acct = results ? this.accountLine() : '';
-
-    return `<div class="dim"></div><div class="studio">
-      ${belka(results ? `round ${this.round} · room ${this.code}` : `room ${this.code}`)}
-      ${head}
-      ${body}
-      <section class="actions">
-        <div class="abar">${readyBtn}${middle}<button class="btn ghost" data-action="leave">Leave</button></div>
-        ${hints.map((h) => `<p class="hint">${h}</p>`).join('')}
-        ${acct ? `<p class="hint small">${acct}</p>` : ''}
-        ${MODE_NOTE ? `<p class="hint small">${esc(MODE_NOTE)}</p>` : ''}
-      </section>
-    </div>`;
+    // waiting room
+    const me = this.slotOf(this.me.id);
+    const slots = Array.from({ length: MAX_PLAYERS }, (_, i) => {
+      const p = a[i];
+      if (!p) return `<div class="slot free">${ava(i)}Free lane</div>`;
+      const isMe = p.id === this.me.id;
+      return `<div class="slot${p.ready ? ' ready' : ''}${isMe ? ' me' : ''}">${ava(i)}<div class="nm"><b>${esc(p.nick)}${isMe ? ' (you)' : ''}</b>${p.ready ? '<span class="pill ready">READY</span>' : '<span class="pill wait">WAITING</span>'}</div></div>`;
+    }).join('');
+    let status: string;
+    let go = false;
+    if (!this.connected) status = 'Connecting…';
+    else if (full) status = `<span class="err">The room is full (max ${MAX_PLAYERS} players).</span>`;
+    else if (alone) status = `Share the code or the link – up to ${MAX_PLAYERS - 1} friends can join.`;
+    else if (readyN === a.length) {
+      go = true;
+      status = 'Everyone is ready – starting in 3…';
+    } else status = `${readyN} of ${a.length} ready · the race starts when everyone is ready`;
+    const extra: string[] = [];
+    if (this.phase === 'lobby' && this.participants.length && !this.participants.includes(this.me.id)) extra.push('A round is in progress – you will join the next one.');
+    if (MODE_NOTE) extra.push(esc(MODE_NOTE));
+    return `<div class="dim"></div><div class="studio menu2">
+      <div class="topbar2"><button class="btn small ghost" data-action="leave">← Leave room</button><span class="who2" style="margin-left:auto;margin-right:0">${ava(me, true)}${esc(this.me.nick)}</span></div>
+      <div class="b-wrap">
+        <div class="b-card">
+          <div class="room-code"><div><small>ROOM CODE</small><b>${esc(this.code)}</b></div><button data-action="copy">Copy link</button></div>
+          <div class="slots" aria-label="Players (${a.length}/${MAX_PLAYERS})">${slots}</div>
+          <p class="room-status${go ? ' go' : ''}">${status}</p>
+          ${extra.map((x) => `<p class="room-status">${x}</p>`).join('')}
+          ${readyBtn("I'm ready")}
+          ${guestNote('As a guest you race, but your time won\'t enter the global ranking.')}
+        </div>
+      </div></div>`;
   }
+
 
   handleAction(action: string, el: HTMLElement) {
     if (action === 'ready' || action === 'retry') this.toggleReady();
     else if (action === 'leave') location.hash = '#/';
+    else if (action === 'view-login') {
+      pendingView = 'login';
+      location.hash = '#/';
+    }
     else if (action === 'copy') {
       const link = `${location.origin}${location.pathname}${location.search}#/r/${this.code}`;
       navigator.clipboard?.writeText(link).then(
-        () => (el.textContent = 'Copied!'),
+        () => {
+          el.textContent = 'Link copied ✓';
+          el.classList.add('copied');
+          window.setTimeout(() => {
+            if (el.isConnected) {
+              el.textContent = 'Copy link';
+              el.classList.remove('copied');
+            }
+          }, 2000);
+        },
         () => prompt('Copy link:', link),
       );
     }
@@ -1116,6 +1255,7 @@ class Room {
 // ---------- menu, konto, ranking ----------
 
 type MenuView = 'main' | 'login' | 'register' | 'check' | 'ranking' | 'account' | 'forgot' | 'recovery';
+let pendingView: MenuView | null = null;
 const menu = {
   view: 'main' as MenuView,
   busy: false,
@@ -1146,6 +1286,26 @@ function topbarHtml(): string {
     <button class="btn blue small" data-action="view-login">Log in</button>
     <button class="btn orange small" data-action="view-register">Sign up</button>
     <button class="btn ghost small" data-action="view-ranking">Ranking</button>${how}</nav>`;
+}
+
+/** v2 top bar: who I am, ranking, help, log in / my account */
+function topbar2Html(): string {
+  const acc = getAccount();
+  const who = `<span class="who2">${ava(0, true)}${esc(acc?.nick ?? getNick())}${acc ? '' : '<i>GUEST</i>'}</span>`;
+  const help = `<a class="icon-btn" href="#/info/jak-grac" aria-label="How to play">${ICON_HELP}</a>`;
+  if (!accountsEnabled) return `<div class="topbar2">${who}${help}</div>`;
+  const rank = `<button class="icon-btn" data-action="view-ranking" aria-label="Ranking">${ICON_TROPHY}</button>`;
+  const login = acc
+    ? '<button class="btn small blue" data-action="view-account">My account</button>'
+    : '<button class="btn small blue" data-action="view-login">Log in</button>';
+  return `<div class="topbar2">${who}${rank}${help}${login}</div>`;
+}
+
+function footPillHtml(): string {
+  const links = INFO_LINKS.filter(([slug]) => slug !== 'jak-grac')
+    .map(([slug, title]) => `<a href="#/info/${slug}">${title}</a>`)
+    .join('');
+  return `<div class="foot-pill"><span class="online${USE_SUPABASE ? '' : ' off'}">${USE_SUPABASE ? 'Online' : 'Local mode'}</span>${links}</div>`;
 }
 
 function dateStr(iso: string) {
@@ -1198,7 +1358,7 @@ function accountHtml(): string {
 
 function menuHtml(): string {
   const acc = getAccount();
-  const wrap = (inner: string) => `<div class="dim"></div><div class="studio">${topbarHtml()}${belka('timed climbing · up to 6 players')}${inner}</div>`;
+  const wrap = (inner: string, foot = false) => `<div class="dim"></div><div class="studio menu2">${topbar2Html()}${belka('rhythm climbing · up to 6 players')}${inner}${foot ? footPillHtml() : ''}</div>`;
   const err = menu.error ? `<p class="msg err">${esc(menu.error)}</p>` : '';
   const note = menu.note ? `<p class="msg ok">${esc(menu.note)}</p>` : '';
   const dis = menu.busy ? 'disabled' : '';
@@ -1276,34 +1436,25 @@ function menuHtml(): string {
       <button class="btn ghost" data-action="view-main">Back</button>`);
   }
 
-  const nickField = acc
-    ? `<div class="row"><span class="name">${esc(acc.nick)}</span><span class="acct">ACCOUNT ✓</span></div><span class="sub">Your times go to the ranking.</span>`
-    : `<label>Your nickname<input id="nick" maxlength="16" value="${esc(getNick())}" autocomplete="off" spellcheck="false"></label>`;
-  return wrap(`
+  const rec = getSolo();
+  return wrap(
+    `
     ${note ? `<div class="form">${note}</div>` : ''}
-    <section class="cards" aria-label="Players">
-      <div class="pcard slot" style="--c:${color(0)}"><div class="lbl"><span>YOU</span></div>${nickField}</div>
-      <div class="vs">VS</div>
-      <div class="pcard empty"><div class="lbl"><span>OPPONENTS</span></div>
-        <span class="name">Free lanes</span><span class="sub">Create a room and share the link – up to ${MAX_PLAYERS} players.</span></div>
-    </section>
-    <section class="actions">
-      <div class="abar solo-bar">
-        <button class="btn green grow" data-action="solo">Solo run</button>
-        <span class="solo-best">${getSolo().best === null ? 'Beat the clock on your own – set your record' : `Your record: <b>${secs(getSolo().best!)} s</b> · ${getSolo().attempts} ${getSolo().attempts === 1 ? 'run' : 'runs'}`}</span>
+    <div class="b-wrap">
+      <div class="b-card">
+        ${acc ? '' : `<label class="nick-row">Nickname <input id="nick" maxlength="16" value="${esc(getNick())}" autocomplete="off" spellcheck="false"></label>`}
+        <button class="btn green row" data-action="solo">Solo run${rec.best === null ? '' : `<span class="pill dark">Record ${secs(rec.best)} s</span>`}</button>
+        <button class="btn blue row" data-action="create">Play with friends <span class="pill dark">up to ${MAX_PLAYERS}</span></button>
+        <div class="code-row">
+          <span>Have a code?</span>
+          <input id="join-code" placeholder="CODE" maxlength="8" aria-label="Room code" autocomplete="off" spellcheck="false" data-enter="join">
+          <button class="btn orange" data-action="join">Join</button>
+        </div>
+        ${guestNote("Guest times don't count in the ranking.")}
       </div>
-      <div class="abar">
-        <button class="btn blue grow" data-action="create">Create room</button>
-        <span class="or">or</span>
-        <label class="sr" for="join-code">Room code</label>
-        <input id="join-code" class="code-in" placeholder="CODE" maxlength="8" autocomplete="off" spellcheck="false" data-enter="join">
-        <button class="btn orange" data-action="join">Join</button>
-      </div>
-      ${!acc && accountsEnabled ? '<p class="hint">Playing as a guest – <button class="linkbtn big" data-action="view-login">log in</button> to get your times into the ranking.</p>' : ''}
-      <p class="hint">The ring closes on the <span class="blue">blue</span> hold → press ← / → (A / D) when it closes → your own time counts</p>
-      <p class="hint small">${esc(MODE_NOTE || 'Online: Supabase Realtime ✓')}</p>
-      ${footerLinksHtml()}
-    </section>`);
+    </div>`,
+    true,
+  );
 }
 
 function renderMenu() {
@@ -1542,7 +1693,8 @@ function route() {
     }
     room?.destroy();
     room = null;
-    menu.view = 'main';
+    menu.view = pendingView ?? 'main';
+    pendingView = null;
     renderMenu();
   }
 }
@@ -1555,6 +1707,7 @@ function loop(now: number) {
   if (room) room.frame(now, dt);
   else {
     syncOppPanels(['__idle']);
+    $('tap-pads').style.display = 'none';
     const idle = { route: IDLE_ROUTE, hold: 0, feedback: 'none' as Feedback, feedbackAge: 1e9, ring: null, showHints: false, present: true, finished: false };
     meView.draw({ ...idle, look: 0 }, now, dt);
     oppPanels.get('__idle')?.view.draw({ ...idle, look: 1 }, now, dt);

@@ -92,6 +92,8 @@ const LOOKS: Colors[] = [
 ];
 /** kolory graczy (koszulki) – do UI */
 export const PLAYER_COLORS = LOOKS.map((l) => l.shirt);
+/** kolory włosów – do avatarów w UI (razem z PLAYER_COLORS) */
+export const PLAYER_HAIR = LOOKS.map((l) => l.hair);
 export const MAX_PLAYERS = LOOKS.length;
 
 const PATH = {
@@ -102,14 +104,80 @@ const PATH = {
   slo: new Path2D('M-15 3 Q-14 -11 0 -12 Q15 -11 15 3 Q10 12 0 12 Q-10 12 -15 3 Z'),
   drop: new Path2D('M0 -16 Q14 -4 10 8 Q0 16 -10 8 Q-14 -4 0 -16 Z'),
   crimp: new Path2D('M-14 -3 Q0 -9 14 -3 Q12 5 0 6 Q-12 5 -14 -3 Z'),
+  // more organic resin shapes: an asymmetric jug with a lip, a lumpy sloper, a pinch, a thin edge, a pocket
+  jug2: new Path2D('M-18 -4 C-14 -13 6 -15 17 -7 C19 -2 16 6 9 10 C2 13 -8 12 -14 7 C-18 4 -19 0 -18 -4 Z'),
+  slo2: new Path2D('M-16 4 C-17 -6 -9 -13 1 -13 C11 -13 17 -6 16 3 C15 10 7 13 -1 13 C-9 13 -15 10 -16 4 Z'),
+  pinch: new Path2D('M-6 -17 C2 -18 8 -12 8 -4 C9 4 7 12 1 16 C-5 18 -9 12 -9 4 C-10 -5 -11 -14 -6 -17 Z'),
+  edge: new Path2D('M-17 -2 C-12 -8 10 -9 17 -3 C18 1 14 5 6 6 C-3 7 -13 6 -17 2 Z'),
+  start: new Path2D('M-34 -4 C-30 -14 -10 -17 6 -16 C22 -15 33 -10 34 -2 C35 6 26 11 12 12 C-4 13 -22 12 -30 7 C-34 4 -35 0 -34 -4 Z'),
+  pocket: new Path2D('M-15 -6 C-10 -14 10 -14 15 -6 C17 3 10 12 0 12 C-10 12 -17 3 -15 -6 Z'),
 };
-const ROUTE_SHAPES = [PATH.jug, PATH.slo, PATH.jug, PATH.drop];
-const DECOR_SHAPES = [PATH.crimp, PATH.slo, PATH.jug, PATH.crimp];
+/** a resin hold: soft shadow on the wall, top-lit shading, grain, chalk on route holds, the bolt */
+function drawHold(ctx: CanvasRenderingContext2D, path: Path2D, fill: string, line: string, seed: number, chalk: boolean) {
+  ctx.save();
+  ctx.translate(2.5, 3.5);
+  ctx.fillStyle = 'rgba(70, 52, 32, 0.28)';
+  ctx.fill(path);
+  ctx.restore();
+  ctx.fillStyle = fill;
+  ctx.fill(path);
+  ctx.save();
+  ctx.clip(path);
+  const g = ctx.createLinearGradient(0, -16, 0, 14);
+  g.addColorStop(0, 'rgba(255, 255, 255, 0.38)');
+  g.addColorStop(0.45, 'rgba(255, 255, 255, 0)');
+  g.addColorStop(1, 'rgba(0, 0, 0, 0.28)');
+  ctx.fillStyle = g;
+  ctx.fillRect(-22, -22, 44, 44);
+  // grain
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.13)';
+  for (let k = 0; k < 9; k++) {
+    ctx.beginPath();
+    ctx.arc((rnd(seed, k, 61) - 0.5) * 30, (rnd(seed, k, 62) - 0.5) * 22, 0.7 + rnd(seed, k, 63) * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (chalk) {
+    // a climbed hold: a chalky haze on the grip side plus a few finger smudges
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.beginPath();
+    ctx.ellipse((rnd(seed, 1, 64) - 0.5) * 8, -6, 11, 5, (rnd(seed, 2, 64) - 0.5) * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    for (let k = 0; k < 4; k++) {
+      ctx.beginPath();
+      ctx.ellipse(-7 + k * 4.5 + (rnd(seed, k, 65) - 0.5) * 2, -8 + rnd(seed, k, 66) * 4, 1.6, 3.2, 0.15, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+    for (let k = 0; k < 6; k++) {
+      ctx.beginPath();
+      ctx.arc((rnd(seed, k, 67) - 0.5) * 26, (rnd(seed, k, 68) - 0.5) * 18, 1 + rnd(seed, k, 69) * 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+  ctx.strokeStyle = line;
+  ctx.lineWidth = 1.8;
+  ctx.stroke(path);
+  // bolt (allen screw)
+  ctx.beginPath();
+  ctx.arc(0, 1, 3.2, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(0, 0.6, 2.4, 0, Math.PI * 2);
+  ctx.fillStyle = '#4a4540';
+  ctx.fill();
+  ctx.fillStyle = '#1f1c19';
+  ctx.fillRect(-1, -0.4, 2, 2);
+}
+const ROUTE_SHAPES = [PATH.jug2, PATH.slo2, PATH.pinch, PATH.pocket, PATH.jug2, PATH.edge];
+const DECOR_SHAPES = [PATH.edge, PATH.slo2, PATH.pinch, PATH.crimp];
 const DECOR_COLORS: [string, string][] = [
   ['#3fa66b', '#23704a'],
   ['#e0603a', '#a63a1d'],
   ['#f0c23b', '#b08914'],
-  ['#8b6cc9', '#5a3f8f'],
+  ['#d98aa5', '#9c5470'],
 ];
 const ROUTE_FILL = '#5b8fd1';
 const ROUTE_LINE = '#2f5d97';
@@ -320,10 +388,24 @@ function shiftBody(p: Pose, dx: number, dy: number): Pose {
  * rest (stuck on a hold mid-route): breathing and a dangling foot.
  * `seed` (the look) de-syncs players so the walls don't move in unison.
  */
-/** countdown chalk-up: the hands take turns dipping into the chalk bag */
-const CHALK_MS = 1400;
-function chalkPose(p: Pose, now: number, seed: number): Pose {
-  const t = now + seed * 300;
+/** countdown chalk-up: right hand, then left hand dip into the chalk bag once, then the climber waits for START */
+const CHALK_MS = 1100;
+function chalkPose(p: Pose, now: number, seed: number, t: number, leg: number): Pose {
+  if (t >= 2 * CHALK_MS) {
+    // ready: both hands on the start hold, a calm breath, and one (random) leg gets a quick shake-out
+    const q = shiftBody(p, 0, Math.sin(now / 650 + seed) * 1.5);
+    const st = (t - 2 * CHALK_MS - 80) / 560;
+    if (st > 0 && st < 1) {
+      const w = smooth(st / 0.2) * (1 - smooth((st - 0.75) / 0.25));
+      const out = leg === 0 ? 1 : -1;
+      const shake = Math.sin(st * Math.PI * 7) * 8 * w;
+      q.legs = q.legs.map(([h, k, f], i) =>
+        (i === leg ? [h, pt(k.x + out * 9 * w + shake * 0.4, k.y - 16 * w), pt(f.x + out * 15 * w + shake, f.y - 24 * w)] : [h, k, f]) as [P, P, P],
+      );
+      q.angle -= out * 0.04 * w;
+    }
+    return q;
+  }
   const side = Math.floor(t / CHALK_MS) % 2;
   const ph = (t % CHALK_MS) / CHALK_MS;
   const w = smooth(ph / 0.25) * (1 - smooth((ph - 0.62) / 0.25));
@@ -361,12 +443,26 @@ function topPose(p: Pose, now: number, seed: number, since: number, rank: number
       legs: p.legs.map(([h, k, f]) => [h, pt(k.x * 1.2, k.y - hop * 0.15), pt(f.x, f.y - hop * 0.1)] as [P, P, P]),
     };
   }
+  if (since < CLAP_END) {
+    // two chalky claps above the head
+    const u = (since - 1100) / (CLAP_END - 1100);
+    const w = smooth(u / 0.15) * (1 - smooth((u - 0.85) / 0.15));
+    const gap = 3 + 11 * (0.5 + 0.5 * Math.cos(((since - 1100) / 300) * Math.PI * 2));
+    return {
+      ...p,
+      arms: p.arms.map((a, i) => {
+        const d = i === 0 ? 1 : -1;
+        return [a[0], lerpP(a[1], pt(d * 27, -30), w), lerpP(a[2], pt(d * gap, -70), w)] as [P, P, P];
+      }),
+    };
+  }
   return p;
 }
+const CLAP_END = 1800;
 
-function idlePose(p: Pose, kind: IdleKind, now: number, seed: number): Pose {
+function idlePose(p: Pose, kind: IdleKind, now: number, seed: number, chalkT = 0, leg = 0): Pose {
   const breath = Math.sin(now / 650 + seed * 1.7);
-  if (kind === 'chalk') return chalkPose(p, now, seed);
+  if (kind === 'chalk') return chalkPose(p, now, seed, chalkT, leg);
   if (kind === 'top') {
     const q = { ...p, S: pt(p.S.x, p.S.y + breath * 2.4) };
     q.arms = p.arms.map(([s, e, h], i) => {
@@ -507,23 +603,35 @@ function drawClimber(ctx: CanvasRenderingContext2D, c: Colors, pose: Pose) {
   ctx.lineJoin = 'round';
   drawLimbs(ctx, pose.legs, 13, 9, c.legsLine, c.legs);
   for (const l of pose.legs) {
-    ctx.beginPath();
-    ctx.ellipse(l[2].x, l[2].y + 3, 10, 6.5, 0, 0, Math.PI * 2);
+    // climbing shoe: a rounded block, toe pointing outwards
+    const out = Math.sign(l[2].x) || 1;
+    ctx.save();
+    ctx.translate(l[2].x + out * 2, l[2].y + 3);
+    roundRect(ctx, -11, -6, 22, 12, 4.5);
     ctx.fillStyle = c.shoe;
     ctx.fill();
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = c.shoeLine;
     ctx.stroke();
+    ctx.fillStyle = c.shoeLine;
+    ctx.globalAlpha = 0.55;
+    ctx.fillRect(-10, 3, 20, 2.2); // rubber sole
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
   drawLimbs(ctx, pose.arms, 11, 8, c.skinLine, c.skin);
   for (const a of pose.arms) {
-    ctx.beginPath();
-    ctx.arc(a[2].x, a[2].y, 7, 0, Math.PI * 2);
+    // hand: a rounded block aligned with the forearm
+    ctx.save();
+    ctx.translate(a[2].x, a[2].y);
+    ctx.rotate(Math.atan2(a[2].y - a[1].y, a[2].x - a[1].x) - Math.PI / 2);
+    roundRect(ctx, -6.5, -3, 13, 14, 4);
     ctx.fillStyle = c.skin;
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = c.skinLine;
     ctx.stroke();
+    ctx.restore();
   }
   ctx.rotate(pose.angle);
   drawTop(ctx, c);
@@ -653,6 +761,10 @@ export class ClimbView {
   private topFrom: Pose | null = null;
   private lastPose: Pose | null = null;
   private chalkCycle = -1;
+  private chalkFrom = NaN;
+  private claps = 0;
+  /** which leg gets shaken out before START (picked at random each countdown) */
+  private shakeLeg = 0;
   private comboShown = 0;
   /** short cross-fade when the pose source changes (slip -> climb, hang -> climb) */
   private poseKind = '';
@@ -709,6 +821,8 @@ export class ClimbView {
     this.lastPose = null;
     this.poseKind = '';
     this.blendFrom = null;
+    this.chalkFrom = NaN;
+    this.chalkCycle = -1;
   }
 
   private burst(kind: Feedback, at: P) {
@@ -844,6 +958,7 @@ export class ClimbView {
     if (v.finished && (this.vh > CFG.holds - 0.05 || !Number.isNaN(this.topAt))) {
       if (Number.isNaN(this.topAt)) {
         this.topAt = now;
+        this.claps = 0;
         this.topFrom = this.lastPose;
       }
       const top = poseTop(cx);
@@ -854,7 +969,9 @@ export class ClimbView {
         pose = { ...pose, S: pt(pose.S.x, pose.S.y - Math.sin(Math.PI * mf) * 24) };
       } else {
         pose = topPose(top, now, v.look, now - this.topAt - MANTLE_MS, v.rank);
-        if (!v.rank) idle = 'top'; // the winner keeps pumping; the others just pant
+        if (!v.rank && now - this.topAt - MANTLE_MS >= CLAP_END) idle = 'top'; // the winner claps, then keeps pumping; the others just pant
+        const since = now - this.topAt - MANTLE_MS;
+        if (!v.rank && v.present) for (const [k, at] of [[1, 1250], [2, 1550]] as const) if (since >= at && this.claps < k) { this.claps = k; this.puff(pt(pose.S.x, pose.S.y - 72)); }
       }
       this.vh = v.hold;
     } else if (v.feedback === 'wrong' && age < 600) {
@@ -883,11 +1000,13 @@ export class ClimbView {
     }
 
     const camMax = FLOOR_Y + 30 - Hd;
-    const target = Math.max(LEDGE_Y - 300, Math.min(pose.S.y - Hd * 0.62, camMax));
+    const target = Math.max(LEDGE_Y - 262, Math.min(pose.S.y - Hd * 0.70, camMax));
     if (Number.isNaN(this.cam)) this.cam = target;
     else this.cam += (target - this.cam) * (1 - Math.exp(-dt / 110));
     const shake = now < this.shakeUntil ? Math.sin(now / 18) * 4 : 0;
-    if (idle) pose = idlePose(pose, idle, now, v.look);
+    if (idle === 'chalk' && Number.isNaN(this.chalkFrom)) { this.chalkFrom = now; this.chalkCycle = -1; this.shakeLeg = Math.random() < 0.5 ? 0 : 1; }
+    if (!v.chalkUp) this.chalkFrom = NaN;
+    if (idle) pose = idlePose(pose, idle, now, v.look, now - this.chalkFrom, this.shakeLeg);
     const kind = Number.isNaN(this.topAt) ? (v.feedback === 'wrong' && age < 600 ? 'slip' : this.vh < 0.5 ? 'hang' : 'climb') : 'top';
     if (kind !== this.poseKind) {
       if (this.poseKind && kind !== 'top' && this.lastPose) {
@@ -907,10 +1026,10 @@ export class ClimbView {
     }
     this.lastPose = pose;
     if (idle === 'chalk' && v.present) {
-      const tt = now + v.look * 300;
+      const tt = now - this.chalkFrom;
       const cyc = Math.floor(tt / CHALK_MS);
       const ph = (tt % CHALK_MS) / CHALK_MS;
-      if (ph > 0.42 && ph < 0.6 && cyc !== this.chalkCycle) {
+      if (cyc < 2 && ph > 0.42 && ph < 0.6 && cyc !== this.chalkCycle) {
         this.chalkCycle = cyc;
         this.puff(pt(pose.S.x, pose.S.y + 52));
       }
@@ -958,6 +1077,13 @@ export class ClimbView {
     const wTop = Math.max(top, LEDGE_Y);
     const wBot = Math.min(bottom, FLOOR_Y - 8);
     if (wBot > wTop) {
+      for (const [x0, x1] of [[wx, wx - 22], [wx + WALL_HALF * 2, wx + WALL_HALF * 2 + 22]]) {
+        const sh = ctx.createLinearGradient(x0, 0, x1, 0);
+        sh.addColorStop(0, 'rgba(40, 32, 30, 0.28)');
+        sh.addColorStop(1, 'rgba(40, 32, 30, 0)');
+        ctx.fillStyle = sh;
+        ctx.fillRect(Math.min(x0, x1), wTop, 22, wBot - wTop);
+      }
       ctx.fillStyle = '#cdbf9f';
       ctx.fillRect(wx, wTop, WALL_HALF * 2, wBot - wTop);
       if (this.bolts) {
@@ -976,32 +1102,97 @@ export class ClimbView {
       ctx.fillStyle = '#b1a27f';
       ctx.fillRect(wx, wTop, 6, wBot - wTop);
       ctx.fillRect(wx + WALL_HALF * 2 - 6, wTop, 6, wBot - wTop);
+      // warm sunset light from the windows, only near the floor (fades as you climb into the night)
+      if (wBot > FLOOR_Y - 560) {
+        const warm = ctx.createLinearGradient(0, FLOOR_Y, 0, FLOOR_Y - 560);
+        warm.addColorStop(0, 'rgba(255, 150, 70, 0.22)');
+        warm.addColorStop(1, 'rgba(255, 150, 70, 0)');
+        ctx.fillStyle = warm;
+        ctx.fillRect(wx, Math.max(wTop, FLOOR_Y - 560), WALL_HALF * 2, wBot - Math.max(wTop, FLOOR_Y - 560));
+      }
     }
 
-    // szczyt: krawędź i flaga
-    if (LEDGE_Y > top - 60 && LEDGE_Y < bottom) {
-      ctx.fillStyle = '#b1a27f';
-      ctx.fillRect(cx - 162, LEDGE_Y - 10, 324, 12);
+    // szczyt: the hall ceiling with two pendant lamps lighting the top-out
+    if (LEDGE_Y - 420 < bottom && LEDGE_Y > top - 400) {
+      for (const lx of [cx - 112, cx + 112]) {
+        const ly = LEDGE_Y - 232;
+        const cone = ctx.createLinearGradient(0, ly, 0, LEDGE_Y + 40);
+        cone.addColorStop(0, 'rgba(255, 214, 140, 0.30)');
+        cone.addColorStop(1, 'rgba(255, 214, 140, 0)');
+        ctx.fillStyle = cone;
+        ctx.beginPath();
+        ctx.moveTo(lx - 14, ly + 10);
+        ctx.lineTo(lx + 14, ly + 10);
+        ctx.lineTo(lx + 78, LEDGE_Y + 40);
+        ctx.lineTo(lx - 78, LEDGE_Y + 40);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#3a3d4a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        polyline(ctx, pt(lx, ly - 400), pt(lx, ly - 8));
+        ctx.stroke();
+        ctx.fillStyle = '#2a2c36';
+        ctx.beginPath();
+        ctx.moveTo(lx - 6, ly - 10);
+        ctx.lineTo(lx + 6, ly - 10);
+        ctx.lineTo(lx + 18, ly + 10);
+        ctx.lineTo(lx - 18, ly + 10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#ffe6a8';
+        ctx.beginPath();
+        ctx.ellipse(lx, ly + 10, 12, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // szczyt: krawędź (a capstone with a chalky lip) i flaga
+    if (LEDGE_Y > top - 60 && LEDGE_Y < bottom + 40) {
+      const sh = ctx.createLinearGradient(0, LEDGE_Y + 8, 0, LEDGE_Y + 24);
+      sh.addColorStop(0, 'rgba(60, 45, 28, 0.35)');
+      sh.addColorStop(1, 'rgba(60, 45, 28, 0)');
+      ctx.fillStyle = sh;
+      ctx.fillRect(cx - WALL_HALF, LEDGE_Y + 8, WALL_HALF * 2, 16);
+      roundRect(ctx, cx - 166, LEDGE_Y - 4, 332, 13, 5);
+      ctx.fillStyle = '#a8996f';
+      ctx.fill();
+      roundRect(ctx, cx - 166, LEDGE_Y - 12, 332, 11, 5);
+      ctx.fillStyle = '#d8cbab';
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      for (let k = 0; k < 5; k++) {
+        ctx.beginPath();
+        ctx.ellipse(cx - 40 + k * 20 + (rnd(route.seed, k, 81) - 0.5) * 10, LEDGE_Y - 3, 6 + rnd(route.seed, k, 82) * 5, 2.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const fx = cx + 130;
+      const fTop = LEDGE_Y - 92;
       ctx.strokeStyle = '#4b4d57';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 3.5;
       ctx.beginPath();
-      polyline(ctx, pt(cx + 128, LEDGE_Y - 10), pt(cx + 128, LEDGE_Y - 62));
+      polyline(ctx, pt(fx, LEDGE_Y - 12), pt(fx, fTop));
       ctx.stroke();
+      ctx.fillStyle = '#f2c94c';
+      ctx.beginPath();
+      ctx.arc(fx, fTop - 2, 4, 0, Math.PI * 2);
+      ctx.fill();
       // waving flag (stronger once the climber made it up)
-      const amp = v.finished ? 4.5 : 2.2;
+      const amp = v.finished ? 5.5 : 2.6;
       const wave = (u: number) => Math.sin(now / 170 - u * 5) * amp * u;
       ctx.fillStyle = '#e5484d';
       ctx.beginPath();
-      ctx.moveTo(cx + 128, LEDGE_Y - 62);
-      for (let i = 1; i <= 8; i++) {
-        const u = i / 8;
-        ctx.lineTo(cx + 128 + 32 * u, LEDGE_Y - 62 + 10 * u + wave(u));
+      ctx.moveTo(fx, fTop + 2);
+      for (let i = 1; i <= 10; i++) {
+        const u = i / 10;
+        ctx.lineTo(fx + 46 * u, fTop + 2 + 12 * u + wave(u));
       }
-      for (let i = 8; i >= 0; i--) {
-        const u = i / 8;
-        ctx.lineTo(cx + 128 + 32 * u, LEDGE_Y - 42 - 10 * u + wave(u));
+      for (let i = 10; i >= 0; i--) {
+        const u = i / 10;
+        ctx.lineTo(fx + 46 * u, fTop + 30 - 12 * u + wave(u));
       }
       ctx.fill();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+      ctx.fillRect(fx, fTop + 2, 4, 28);
     }
 
     // ozdobne chwyty (inne kolory)
@@ -1020,21 +1211,58 @@ export class ClimbView {
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate((rnd(route.seed, i, j + 30) - 0.5) * 0.6);
-        const s = 0.75 + rnd(route.seed, i, j + 40) * 0.25;
+        const s = 0.62 + rnd(route.seed, i, j + 40) * 0.2;
         ctx.scale(s, s);
-        fillStroke(ctx, DECOR_SHAPES[Math.floor(rnd(route.seed, i, j + 50) * 4)], fill, line, 2.5);
+        ctx.globalAlpha = 0.72;
+        drawHold(ctx, DECOR_SHAPES[Math.floor(rnd(route.seed, i, j + 50) * 4)], fill, line, route.seed + i * 31 + j, false);
+        ctx.globalAlpha = 1;
         ctx.restore();
       }
     }
 
-    // trasa: niebieskie chwyty
+    // trasa: niebieskie chwyty (the next one glows, the ones already climbed carry chalk marks)
+    if ((v.ring || v.chalkUp) && v.hold + 1 <= CFG.holds) {
+      const gx = hx(v.hold + 1), gy = hy(v.hold + 1);
+      const glow = ctx.createRadialGradient(gx, gy, 8, gx, gy, 46);
+      glow.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+      glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(gx, gy, 46, 0, Math.PI * 2);
+      ctx.fill();
+    }
     for (let i = iMin; i <= iMax; i++) {
       ctx.save();
       ctx.translate(hx(i), hy(i));
-      if (i === 0) ctx.scale(2.6, 1.3);
+      if (i === 0) ctx.scale(1.25, 1.25);
       else ctx.rotate((rnd(route.seed, i, 99) - 0.5) * 0.35);
       const hit = i === v.hold && (v.feedback === 'perfect' || v.feedback === 'good') && age < 160;
-      fillStroke(ctx, i === 0 ? PATH.jug : ROUTE_SHAPES[i % 4], hit ? (v.feedback === 'perfect' ? '#d9f7e5' : '#fff3c4') : ROUTE_FILL, ROUTE_LINE, i === 0 ? 2 : 3);
+      drawHold(ctx, i === 0 ? PATH.start : ROUTE_SHAPES[Math.floor(rnd(route.seed, i, 98) * ROUTE_SHAPES.length)], hit ? (v.feedback === 'perfect' ? '#d9f7e5' : '#fff3c4') : ROUTE_FILL, ROUTE_LINE, route.seed + i * 17, i > 0 && i <= v.hold);
+      ctx.restore();
+    }
+    // gym-style START / TOP tape next to the first and the last hold
+    for (const [ti, label] of [[0, 'START'], [CFG.holds, 'TOP']] as const) {
+      if (ti < iMin || ti > iMax) continue;
+      ctx.save();
+      const tside = ti === 0 ? 1 : hx(ti) >= cx ? -1 : 1;
+      ctx.translate(hx(ti) + tside * (ti === 0 ? 82 : 52), hy(ti) + 8);
+      ctx.rotate(-0.1);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+      ctx.fillRect(-29, -6, 60, 15);
+      ctx.fillStyle = '#f4f1e8';
+      ctx.beginPath();
+      ctx.moveTo(-30, -8);
+      for (let k = 0; k <= 4; k++) ctx.lineTo(-30 + (k % 2) * 1.5, -8 + k * 3.5);
+      ctx.lineTo(30, 6);
+      for (let k = 0; k <= 4; k++) ctx.lineTo(30 - (k % 2) * 1.5, 6 - k * 3.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = ROUTE_LINE;
+      ctx.font = '900 10px Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, 0, -0.5);
+      ctx.textBaseline = 'alphabetic';
       ctx.restore();
     }
     // the grabbed hold flashes: one ring for OK, a double ring for PERFECT
@@ -1119,6 +1347,49 @@ export class ClimbView {
       roundRect(ctx, px + 16, PAD_TOP + 7, 134, 7, 3);
       ctx.fillStyle = '#f2c94c';
       ctx.fill();
+      // chalk scuffs
+      const ms = Math.round(px * 7) | 0;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath();
+        ctx.ellipse(px + 14 + rnd(ms, k, 71) * 138, PAD_TOP + 20 + rnd(ms, k, 72) * 20, 5 + rnd(ms, k, 73) * 9, 2 + rnd(ms, k, 74) * 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // chalk bucket with a brush, on the mat beside the wall
+    {
+      const bx = cx + 118;
+      const by = PAD_TOP + 4;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+      ctx.beginPath();
+      ctx.ellipse(bx, by + 1, 17, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#8c6a3f';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      polyline(ctx, pt(bx + 4, by - 22), pt(bx + 13, by - 38));
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(bx - 14, by - 24);
+      ctx.lineTo(bx + 14, by - 24);
+      ctx.lineTo(bx + 11, by);
+      ctx.lineTo(bx - 11, by);
+      ctx.closePath();
+      ctx.fillStyle = '#e2672f';
+      ctx.fill();
+      ctx.strokeStyle = '#9c3f17';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = '#f4f1e8';
+      ctx.beginPath();
+      ctx.ellipse(bx, by - 24, 14, 3.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#9c3f17';
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.beginPath();
+      ctx.ellipse(bx - 3, by - 14, 6, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     if (v.present) drawClimber(ctx, LOOKS[v.look % LOOKS.length], pose);
@@ -1144,21 +1415,25 @@ export class ClimbView {
     this.wasFinished = v.finished;
     this.stepParticles(ctx, dt);
 
-    // komunikat w stylu komiksowym
-    if (v.present && v.feedback !== 'none' && v.feedbackAge < 700) {
+    // komunikat w stylu komiksowym: smaller, beside the climber, away from the next hold
+    if (v.present && v.feedback !== 'none' && v.feedbackAge < 600) {
+      const nextX = v.hold + 1 <= CFG.holds ? hx(v.hold + 1) : cx;
+      const side = nextX >= pose.S.x ? -1 : 1;
       ctx.save();
-      ctx.globalAlpha = 1 - clamp01((v.feedbackAge - 250) / 450);
-      ctx.translate(pose.S.x, pose.S.y - 95 - v.feedbackAge * 0.03);
-      ctx.rotate(v.look % 2 === 0 ? -0.1 : 0.09);
-      // pop in: starts big and settles with a little bounce
+      ctx.globalAlpha = 1 - clamp01((v.feedbackAge - 220) / 380);
+      // keep the whole label on screen (narrow phones)
+      const fx = Math.max(78, Math.min(Wd - 78, pose.S.x + side * 78));
+      ctx.translate(fx, pose.S.y + 18 - v.feedbackAge * 0.02);
+      ctx.rotate(side * 0.07);
       const big = v.feedback === 'perfect' || v.feedback === 'wrong';
-      const pop = 1 + (big ? 0.55 : 0.25) * (1 - easeBack(clamp01(v.feedbackAge / 220), 2.2));
+      const pop = 1 + (big ? 0.4 : 0.2) * (1 - easeBack(clamp01(v.feedbackAge / 200), 2.2));
       ctx.scale(pop, pop);
       if (v.feedback === 'wrong') ctx.translate(Math.sin(v.feedbackAge / 25) * 4 * (1 - clamp01(v.feedbackAge / 300)), 0);
-      ctx.font = '900 40px Nunito, system-ui, sans-serif';
+      ctx.font = '900 28px Nunito, system-ui, sans-serif';
       ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
       ctx.lineJoin = 'round';
-      ctx.lineWidth = 8;
+      ctx.lineWidth = 7;
       ctx.strokeStyle = '#ffffff';
       ctx.strokeText(FB_TEXT[v.feedback], 0, 0);
       ctx.fillStyle = FB_COLOR[v.feedback];
@@ -1166,12 +1441,13 @@ export class ClimbView {
       const combo = v.combo ?? 0;
       if (v.feedback === 'perfect' && combo >= 2) {
         const milestone = combo % 5 === 0;
-        ctx.font = `900 ${milestone ? 30 : 24}px Nunito, system-ui, sans-serif`;
-        ctx.lineWidth = 7;
-        ctx.strokeText(`COMBO ×${combo}`, 0, 34);
+        ctx.font = `900 ${milestone ? 17 : 15}px Nunito, system-ui, sans-serif`;
+        ctx.lineWidth = 5;
+        ctx.strokeText(`COMBO ×${combo}`, 0, 26);
         ctx.fillStyle = milestone ? '#e0a10f' : '#1f2028';
-        ctx.fillText(`COMBO ×${combo}`, 0, 34);
+        ctx.fillText(`COMBO ×${combo}`, 0, 26);
       }
+      ctx.textBaseline = 'alphabetic';
       ctx.restore();
     }
     ctx.restore();
