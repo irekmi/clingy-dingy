@@ -1192,7 +1192,7 @@ function accountHtml(): string {
       </label>
       ${err}${note}
       <div class="tbl"><h2>RECENT ROUNDS</h2>${table}</div>
-      <div class="row2"><button class="linkbtn" data-action="send-reset">Change password (we e-mail you a link)</button><button class="linkbtn" data-action="logout">Log out</button><button class="linkbtn" data-action="view-main">Back</button></div>
+      <div class="row2"><button class="btn small blue" data-action="send-reset" title="We e-mail you a link">Change password</button><button class="btn small orange" data-action="logout">Log out</button><button class="btn small ghost" data-action="view-main">Back</button></div>
     </div>`;
 }
 
@@ -1210,7 +1210,7 @@ function menuHtml(): string {
       <label>Password<input id="f-pass" type="password" autocomplete="current-password" data-enter="do-login"></label>
       ${err}${note}
       <button class="btn blue" data-action="do-login" ${dis}>${menu.busy ? 'Logging in…' : 'Log in'}</button>
-      <div class="row2"><button class="linkbtn" data-action="view-register">No account? Sign up</button><button class="linkbtn" data-action="view-forgot">Forgot password</button><button class="linkbtn" data-action="view-main">Back</button></div>
+      <div class="row2"><button class="btn small blue" data-action="view-register">No account? Sign up</button><button class="btn small ghost" data-action="view-forgot">Forgot password</button><button class="btn small ghost" data-action="view-main">Back</button></div>
     </div>`);
   }
   if (menu.view === 'forgot') {
@@ -1220,7 +1220,7 @@ function menuHtml(): string {
       <label>E-mail<input id="f-email" type="email" autocomplete="email" value="${esc(menu.email)}" data-enter="do-forgot"></label>
       ${err}${note}
       <button class="btn blue" data-action="do-forgot" ${dis}>${menu.busy ? 'Sending…' : 'Send link'}</button>
-      <div class="row2"><button class="linkbtn" data-action="view-login">Back to login</button></div>
+      <div class="row2"><button class="btn small ghost" data-action="view-login">Back to login</button></div>
     </div>`);
   }
   if (menu.view === 'recovery') {
@@ -1239,7 +1239,7 @@ function menuHtml(): string {
       <label>Password (min. 6 characters)<input id="f-pass" type="password" autocomplete="new-password" data-enter="do-register"></label>
       ${err}
       <button class="btn blue" data-action="do-register" ${dis}>${menu.busy ? 'Creating…' : 'Create account'}</button>
-      <div class="row2"><button class="linkbtn" data-action="view-login">I have an account – log in</button><button class="linkbtn" data-action="view-main">Back</button></div>
+      <div class="row2"><button class="btn small blue" data-action="view-login">I have an account – log in</button><button class="btn small ghost" data-action="view-main">Back</button></div>
     </div>`);
   }
   if (menu.view === 'check') {

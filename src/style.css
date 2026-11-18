@@ -1675,3 +1675,14 @@ button:disabled {
     text-align: center;
   }
 }
+
+/* account / login forms: the bottom actions are real buttons now */
+.form .row2 .btn.small {
+  flex: 1 1 auto;
+  text-align: center;
+}
+@media (max-width: 560px) {
+  .form .row2 .btn.small {
+    flex: 1 1 100%;
+  }
+}
