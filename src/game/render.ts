@@ -530,27 +530,98 @@ function drawClimber(ctx: CanvasRenderingContext2D, c: Colors, pose: Pose) {
   ctx.restore();
 }
 
-function drawWindow(ctx: CanvasRenderingContext2D, x: number, y: number, variant: number) {
-  const bands: [number, string][] = [
-    [92, '#7b4842'], [70, '#904e3d'], [60, '#a4573b'], [56, '#b7623c'], [258, '#c46e3e'],
-  ];
+// ---------- windows: the sunset turns into a navy night sky with stars and a moon as you climb ----------
+
+const SUNSET_BANDS: [number, string][] = [
+  [92, '#7b4842'], [70, '#904e3d'], [60, '#a4573b'], [56, '#b7623c'], [258, '#c46e3e'],
+];
+const NIGHT_BANDS = ['#070b24', '#0b1232', '#111a42', '#182554', '#223266'];
+const hex = (c: string) => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+const mixHex = (a: string, b: string, t: number) => {
+  const x = hex(a);
+  const y = hex(b);
+  return `rgb(${Math.round(x[0] + (y[0] - x[0]) * t)},${Math.round(x[1] + (y[1] - x[1]) * t)},${Math.round(x[2] + (y[2] - x[2]) * t)})`;
+};
+/** 0 = sunset (near the floor) .. 1 = full night (high on the wall), by world y */
+const nightAt = (y: number) => Math.min(1, Math.max(0, (-y - 100) / 1400));
+
+function drawWindow(ctx: CanvasRenderingContext2D, x: number, y: number, variant: number, now: number, moon: boolean) {
+  // sky: the sunset bands, each one blended towards its night colour by its own height
+  const bands: { y: number; h: number; col: string }[] = [];
   let yy = y;
-  for (const [h, col] of bands) {
-    ctx.fillStyle = col;
+  SUNSET_BANDS.forEach(([h, col], i) => {
+    const g = nightAt(yy + h / 2);
+    const c = mixHex(col, NIGHT_BANDS[i], g);
+    bands.push({ y: yy, h, col: c });
+    ctx.fillStyle = c;
     ctx.fillRect(x, yy, 134, h + 0.5);
     yy += h;
+  });
+
+  const gWin = nightAt(y + 130);
+  // stars (they appear once the sky darkens) – behind the mountains
+  if (gWin > 0.2) {
+    const seed = Math.abs(Math.round(y)) + variant * 7 + 3;
+    for (let i = 0; i < 30; i++) {
+      const sx = 5 + rnd(seed, i, 1) * 124;
+      const sy = 5 + rnd(seed, i, 2) * 235;
+      const a = Math.min(1, Math.max(0, (nightAt(y + sy) - 0.2) / 0.5)) * (0.55 + 0.45 * Math.sin(now / 700 + i * 2.3));
+      if (a < 0.03) continue;
+      const r = 0.7 + rnd(seed, i, 3) * 1.3;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(x + sx, y + sy, r, 0, Math.PI * 2);
+      ctx.fill();
+      if (r > 1.6) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(x + sx - r * 2.2, y + sy);
+        ctx.lineTo(x + sx + r * 2.2, y + sy);
+        ctx.moveTo(x + sx, y + sy - r * 2.2);
+        ctx.lineTo(x + sx, y + sy + r * 2.2);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
   }
+  // moon: a soft glow and a crescent
+  if (moon) {
+    const a = Math.min(1, Math.max(0, (gWin - 0.4) / 0.35));
+    if (a > 0.02) {
+      const mx = x + 88;
+      const my = y + 82;
+      const skyAt = (py: number) => (bands.find((b) => py >= b.y && py < b.y + b.h) ?? bands[bands.length - 1]).col;
+      ctx.globalAlpha = a;
+      const glow = ctx.createRadialGradient(mx, my, 6, mx, my, 54);
+      glow.addColorStop(0, 'rgba(236, 232, 200, 0.32)');
+      glow.addColorStop(1, 'rgba(236, 232, 200, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(x, y, 134, 170);
+      ctx.fillStyle = '#f4efd6';
+      ctx.beginPath();
+      ctx.arc(mx, my, 21, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = skyAt(my - 4);
+      ctx.beginPath();
+      ctx.arc(mx + 10, my - 6, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
   const m = variant
     ? [0, 276, 32, 256, 68, 294, 112, 246, 134, 268]
     : [0, 306, 32, 276, 68, 310, 104, 264, 134, 282];
-  ctx.fillStyle = '#33252a';
+  ctx.fillStyle = mixHex('#33252a', '#0c1024', gWin);
   ctx.beginPath();
   ctx.moveTo(x + m[0], y + m[1]);
   for (let i = 2; i < m.length; i += 2) ctx.lineTo(x + m[i], y + m[i + 1]);
   ctx.lineTo(x + 134, y + 536);
   ctx.lineTo(x, y + 536);
   ctx.fill();
-  ctx.fillStyle = '#3a4a2f';
+  ctx.fillStyle = mixHex('#3a4a2f', '#0f1a1f', gWin);
   ctx.beginPath();
   ctx.moveTo(x, y + 506);
   for (let i = 0; i <= 11; i++) ctx.lineTo(x + i * 12.2, y + (i % 2 ? 492 : 504));
@@ -857,14 +928,14 @@ export class ClimbView {
       const top = -396 - n * 640;
       if (top + 536 < camBg) break;
       if (top > camBg + Hd) continue;
-      drawWindow(ctx, cx - 304, top, 0);
-      drawWindow(ctx, cx + 170, top, 1);
+      drawWindow(ctx, cx - 304, top, 0, now, false);
+      drawWindow(ctx, cx + 170, top, 1, now, n >= 2);
       // wide screens: the hall goes on to both sides
       for (let j = 1; j <= Math.ceil(Wd / 2 / 260) + 1; j++) {
         const lx = cx - 304 - j * 260;
         const rx = cx + 170 + j * 260;
-        if (lx + 134 > 0) drawWindow(ctx, lx, top, j % 2);
-        if (rx < Wd) drawWindow(ctx, rx, top, (j + 1) % 2);
+        if (lx + 134 > 0) drawWindow(ctx, lx, top, j % 2, now, false);
+        if (rx < Wd) drawWindow(ctx, rx, top, (j + 1) % 2, now, false);
       }
     }
     ctx.restore();
