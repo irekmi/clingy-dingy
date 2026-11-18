@@ -5,6 +5,11 @@ import { CFG, type Feedback, type Route } from '@sim';
 // ześlizg, szczyt. Wszystko rysujemy w „jednostkach projektu” (jak na kanwie Design: odstęp
 // chwytów = 100) i skalujemy do rozmiaru canvasa.
 
+/** victory celebrations to pick from */
+export type Celebration = 'chalk' | 'flex' | 'disco' | 'flip' | 'clap';
+/** 'clap' is the free classic (hops, two claps, arm pumps); the others are unlocked with chalk */
+export const CELEBRATIONS: Celebration[] = ['clap', 'chalk', 'flex', 'disco', 'flip'];
+
 /** Numer miejsca w pokoju (0–5) – wyznacza kolory i wygląd wspinacza. */
 export type Look = number;
 
@@ -26,6 +31,10 @@ export interface ClimberView {
   chalkUp?: boolean;
   /** place in the finished round (0 = winner); set on the results screen */
   rank?: number | null;
+  /** custom outfit from the character editor (sanitized!); without it the lane's built-in look is used */
+  outfit?: Outfit | null;
+  /** the winner's celebration at the summit (player's choice) */
+  celebration?: Celebration;
 }
 
 export const fmtTime = (ms: number) => `${(ms / 1000).toFixed(2)} s`;
@@ -56,6 +65,65 @@ interface Colors {
   hairLine: string;
   band: string | null;
   curls: boolean;
+  /** hair style; when missing: curls ? 'curly' : 'pony' (the built-in lane looks) */
+  style?: HairStyle;
+  /** chalk bag – carries the lane colour so players stay recognisable with custom outfits */
+  bag?: string;
+  bagLine?: string;
+}
+
+// ---------- custom outfit (character editor) ----------
+
+export type HairStyle = 'short' | 'pony' | 'curly' | 'long';
+export interface Outfit {
+  skin: string;
+  hairStyle: HairStyle;
+  hair: string;
+  band: string | null;
+  shirt: string;
+  pants: string;
+  shoes: string;
+}
+/** the options offered in the editor (max 4 per part); anything else received over the network is rejected */
+export const OUTFIT_OPTIONS = {
+  skin: ['#f0c9a4', '#d39a62', '#a8693d', '#7a4a2b'],
+  hairStyle: ['short', 'pony', 'curly', 'long'] as HairStyle[],
+  hair: ['#1d1a18', '#5a3a24', '#c9a04a', '#a5462a'],
+  band: [null, '#e5484d', '#2563a8', '#f2c94c'] as (string | null)[],
+  shirt: ['#2563a8', '#e2672f', '#2f9e5a', '#7c4dbd'],
+  pants: ['#2b3150', '#2b2b33', '#1f4f8a', '#c9b28a'],
+  shoes: ['#f2b233', '#e5484d', '#5b8fd1', '#f4f1e8'],
+};
+export const DEFAULT_OUTFIT: Outfit = { skin: '#d39a62', hairStyle: 'pony', hair: '#5a3a24', band: '#e5484d', shirt: '#2563a8', pants: '#2b3150', shoes: '#f2b233' };
+
+/** keeps only whitelisted values (use on anything that comes from Presence / the database) */
+export function sanitizeOutfit(o: unknown): Outfit | null {
+  if (!o || typeof o !== 'object') return null;
+  const x = o as Record<string, unknown>;
+  const ok = <T>(list: readonly T[], v: unknown): v is T => list.includes(v as T);
+  const O = OUTFIT_OPTIONS;
+  if (!ok(O.skin, x.skin) || !ok(O.hairStyle, x.hairStyle) || !ok(O.hair, x.hair) || !ok(O.band, x.band ?? null) || !ok(O.shirt, x.shirt) || !ok(O.pants, x.pants) || !ok(O.shoes, x.shoes)) return null;
+  return { skin: x.skin, hairStyle: x.hairStyle, hair: x.hair, band: (x.band ?? null) as string | null, shirt: x.shirt, pants: x.pants, shoes: x.shoes } as Outfit;
+}
+
+/** darker outline colour from a fill colour */
+export function shade(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (v: number) => Math.round(v * (1 - k)).toString(16).padStart(2, '0');
+  return `#${f(n >> 16)}${f((n >> 8) & 255)}${f(n & 255)}`;
+}
+
+function outfitColors(o: Outfit, lane: number): Colors {
+  const bag = LOOKS[lane % LOOKS.length].shirt;
+  return {
+    skin: o.skin, skinLine: shade(o.skin, 0.42),
+    shirt: o.shirt, shirtLine: shade(o.shirt, 0.38),
+    legs: o.pants, legsLine: shade(o.pants, 0.5),
+    shoe: o.shoes, shoeLine: shade(o.shoes, 0.35),
+    hair: o.hair, hairLine: shade(o.hair, 0.45),
+    band: o.band, curls: o.hairStyle === 'curly', style: o.hairStyle,
+    bag, bagLine: shade(bag, 0.38),
+  };
 }
 
 const LOOKS: Colors[] = [
@@ -209,7 +277,7 @@ interface Part {
   max: number;
   r: number;
   color: string;
-  shape: 'dot' | 'star' | 'rect';
+  shape: 'dot' | 'star' | 'rect' | 'cloud';
 }
 
 /** deterministyczny „los” dla ozdobnych chwytów */
@@ -460,6 +528,120 @@ function topPose(p: Pose, now: number, seed: number, since: number, rank: number
 }
 const CLAP_END = 1800;
 
+// ---------- victory celebrations (winner only; `since` = ms after standing up at the top) ----------
+
+const CELEB_CYCLE: Record<Celebration, number> = { chalk: 3000, flex: 1800, disco: 1000, flip: 2600, clap: 1e9 };
+/** one-shot effects inside each cycle: [ms in cycle, kind] */
+const CELEB_FX: Record<Celebration, [number, 'bomb' | 'dust' | 'puff'][]> = {
+  chalk: [[640, 'bomb']],
+  flex: [],
+  disco: [],
+  flip: [[820, 'dust']],
+  clap: [[1250, 'puff'], [1550, 'puff']],
+};
+const V_ARM: [P, P, P] = [pt(12, 3), pt(30, -36), pt(46, -72)];
+const HIP_ARM: [P, P, P] = [pt(12, 3), pt(29, 22), pt(16, 42)];
+const armPair = (r: [P, P, P], l: [P, P, P] = mirror(r)): [P, P, P][] => [r, l];
+const lerpArm = (a: [P, P, P], b: [P, P, P], w: number) => a.map((q, i) => lerpP(q, b[i], w)) as [P, P, P];
+
+/** rotates the whole body by `rot` around its middle (hips), keeping limbs attached */
+function spin(p: Pose, rot: number): Pose {
+  const c = Math.cos(rot);
+  const sn = Math.sin(rot);
+  const R = (q: P) => pt(q.x * c - q.y * sn, q.x * sn + q.y * c);
+  const C = pt(0, 45);
+  const RC = R(C);
+  return {
+    S: pt(p.S.x + C.x - RC.x, p.S.y + C.y - RC.y),
+    angle: p.angle + rot,
+    arms: p.arms.map((a) => a.map(R) as [P, P, P]),
+    legs: p.legs.map((l) => l.map(R) as [P, P, P]),
+  };
+}
+
+function celebratePose(top: Pose, kind: Celebration, since: number, now: number, seed: number): Pose {
+  const t = since % CELEB_CYCLE[kind];
+  const intro = smooth(since / 250); // blend in from the plain top pose
+  const breath = Math.sin(now / 650 + seed) * 1.5;
+  const base: Pose = { ...top, S: pt(top.S.x, top.S.y + breath) };
+  let q: Pose;
+  if (kind === 'chalk') {
+    // both hands into the chalk bag … and a big throw of chalk into the air
+    const bag: [P, P, P] = [pt(12, 3), pt(22, 30), pt(5, 54)];
+    const up: [P, P, P] = [pt(12, 3), pt(28, -34), pt(32, -80)];
+    let arm: [P, P, P];
+    let dy = 0;
+    if (t < 450) {
+      arm = lerpArm(V_ARM, bag, smooth(t / 300));
+      dy = 4 * smooth(t / 300);
+    } else if (t < 750) {
+      const u = easeOut((t - 450) / 300);
+      arm = lerpArm(bag, up, u);
+      dy = 4 * (1 - u) - Math.sin(Math.PI * u) * 12;
+    } else {
+      const pump = Math.max(0, Math.sin((t - 750) / 260));
+      arm = [up[0], pt(up[1].x, up[1].y - pump * 4), pt(up[2].x + pump * 3, up[2].y - pump * 8)];
+    }
+    q = { ...base, S: pt(base.S.x, base.S.y + dy), arms: armPair(arm) };
+  } else if (kind === 'flex') {
+    // double biceps, pulsing
+    const k = 0.5 + 0.5 * Math.sin((t / CELEB_CYCLE.flex) * Math.PI * 4);
+    const arm: [P, P, P] = [pt(12, 3), pt(35 + k * 2, -3 - k * 2), pt(30 - k * 3, -27 - k * 4)];
+    q = {
+      ...base,
+      S: pt(base.S.x, base.S.y + k * 2),
+      angle: Math.sin(now / 90) * 0.015 * k,
+      arms: armPair(arm),
+      legs: [
+        [pt(7, 49), pt(17, 74), pt(21, 100)],
+        [pt(-7, 49), pt(-17, 74), pt(-21, 100)],
+      ],
+    };
+  } else if (kind === 'disco') {
+    // point up to one side, other hand on the hip; swap every half second with a hip sway
+    const ph = (since / 500) % 2;
+    const side = Math.floor(ph);
+    const w = smooth((ph - side) / 0.3);
+    const point: [P, P, P] = [pt(12, 3), pt(26, -30), pt(42, -70)];
+    const from = side === 0 ? -1 : 1;
+    const to = -from;
+    const sway = (from + (to - from) * w) * 5;
+    const r0 = side === 0 ? HIP_ARM : point;
+    const r1 = side === 0 ? point : HIP_ARM;
+    const right = lerpArm(r0, r1, w);
+    const left = mirror(lerpArm(r1, r0, w));
+    const bend = (i: number) => (i === 0 ? (to > 0 ? 1 : 0) : to < 0 ? 1 : 0) * w + (i === 0 ? (from > 0 ? 1 : 0) : from < 0 ? 1 : 0) * (1 - w);
+    q = {
+      ...base,
+      S: pt(base.S.x + sway, base.S.y + Math.abs(Math.sin(Math.PI * (ph - side))) * 3),
+      angle: -sway * 0.012,
+      arms: [right, left],
+      legs: top.legs.map(([h, kn, f], i) => [h, pt(kn.x + (i ? -1 : 1) * 6 * bend(i), kn.y - 6 * bend(i)), pt(f.x - sway, f.y - 4 * bend(i))] as [P, P, P]),
+    };
+  } else if (kind === 'flip') {
+    // crouch, backflip, land
+    const tuck: [P, P, P] = [pt(12, 3), pt(24, 18), pt(10, 30)];
+    if (t < 220) {
+      const u = smooth(t / 220);
+      q = { ...base, S: pt(base.S.x, base.S.y + 12 * u), arms: armPair(lerpArm(V_ARM, tuck, u)), legs: top.legs.map(([h, k, f], i) => [h, pt(k.x + (i ? -8 : 8) * u, k.y - 10 * u), pt(f.x, f.y - 12 * u)] as [P, P, P]) };
+    } else if (t < 820) {
+      const u = (t - 220) / 600;
+      const lift = Math.sin(Math.PI * u) * 78;
+      const tucked: Pose = { ...base, S: pt(base.S.x, base.S.y + 12 - lift - 12 * Math.sin(Math.PI * u)), arms: armPair(tuck), legs: top.legs.map(([h, k, f], i) => [h, pt(k.x + (i ? -10 : 10), k.y - 18), pt(f.x + (i ? -4 : 4), f.y - 30)] as [P, P, P]) };
+      q = spin(tucked, -Math.PI * 2 * smooth(u));
+    } else if (t < 1050) {
+      const u = 1 - smooth((t - 820) / 230);
+      q = { ...base, S: pt(base.S.x, base.S.y + 12 * u), arms: armPair(lerpArm(V_ARM, tuck, u)), legs: top.legs.map(([h, k, f], i) => [h, pt(k.x + (i ? -8 : 8) * u, k.y - 10 * u), pt(f.x, f.y - 12 * u)] as [P, P, P]) };
+    } else {
+      const pump = Math.max(0, Math.sin((t - 1050) / 260));
+      q = { ...base, arms: armPair([V_ARM[0], pt(V_ARM[1].x, V_ARM[1].y - pump * 4), pt(V_ARM[2].x + pump * 3, V_ARM[2].y - pump * 10)]) };
+    }
+  } else {
+    return top;
+  }
+  return intro < 1 ? lerpPose(top, q, intro) : q;
+}
+
 function idlePose(p: Pose, kind: IdleKind, now: number, seed: number, chalkT = 0, leg = 0): Pose {
   const breath = Math.sin(now / 650 + seed * 1.7);
   if (kind === 'chalk') return chalkPose(p, now, seed, chalkT, leg);
@@ -548,10 +730,10 @@ function drawTop(ctx: CanvasRenderingContext2D, c: Colors) {
   ctx.moveTo(-16, 47);
   ctx.quadraticCurveTo(0, 54, 16, 47);
   ctx.stroke();
-  roundRect(ctx, -7, 49, 15, 16, 4); // woreczek na magnezję
-  ctx.fillStyle = '#e9e2cf';
+  roundRect(ctx, -7, 49, 15, 16, 4); // woreczek na magnezję (w kolorze toru przy własnym stroju)
+  ctx.fillStyle = c.bag ?? '#e9e2cf';
   ctx.fill();
-  ctx.strokeStyle = '#8c7f63';
+  ctx.strokeStyle = c.bagLine ?? '#8c7f63';
   ctx.lineWidth = 2;
   ctx.stroke();
   roundRect(ctx, -5, -17, 10, 14, 4); // szyja
@@ -568,7 +750,8 @@ function drawTop(ctx: CanvasRenderingContext2D, c: Colors) {
     ctx.strokeStyle = c.skinLine;
     ctx.stroke();
   }
-  if (c.curls) {
+  const style: HairStyle = c.style ?? (c.curls ? 'curly' : 'pony');
+  if (style === 'curly') {
     ctx.fillStyle = c.hair;
     for (const [x, y, r] of [
       [-11, -37, 5.5], [-4, -41, 5.5], [4, -41, 5.5], [11, -37, 5.5], [14, -29, 5], [-14, -29, 5],
@@ -585,6 +768,19 @@ function drawTop(ctx: CanvasRenderingContext2D, c: Colors) {
   ctx.lineWidth = 2.5;
   ctx.strokeStyle = c.hairLine;
   ctx.stroke();
+  if (style === 'long') {
+    // long hair falls over the lower half of the head and the upper back (no seam across the head)
+    ctx.beginPath();
+    ctx.moveTo(-15, -27);
+    ctx.quadraticCurveTo(-19, -4, -13, 10);
+    ctx.quadraticCurveTo(0, 15, 13, 10);
+    ctx.quadraticCurveTo(19, -4, 15, -27);
+    ctx.fillStyle = c.hair;
+    ctx.fill();
+    ctx.strokeStyle = c.hairLine;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
   if (c.band) {
     ctx.strokeStyle = c.band;
     ctx.lineWidth = 4.5;
@@ -593,7 +789,7 @@ function drawTop(ctx: CanvasRenderingContext2D, c: Colors) {
     ctx.quadraticCurveTo(0, -40, 14.5, -33);
     ctx.stroke();
   }
-  if (!c.curls) fillStroke(ctx, PATH.pony, c.hair, c.hairLine, 2);
+  if (style === 'pony') fillStroke(ctx, PATH.pony, c.hair, c.hairLine, 2);
 }
 
 function drawClimber(ctx: CanvasRenderingContext2D, c: Colors, pose: Pose) {
@@ -746,6 +942,43 @@ function drawWindow(ctx: CanvasRenderingContext2D, x: number, y: number, variant
   ctx.stroke();
 }
 
+/**
+ * Character editor / profile preview: one climber standing on a strip of floor, centred in a box of
+ * cssW × cssH (CSS px). The caller clears the canvas, applies devicePixelRatio and calls this every frame.
+ * celebration = null → relaxed (hands on hips); otherwise the celebration loops (without particles).
+ */
+export function drawClimberPreview(
+  ctx: CanvasRenderingContext2D,
+  cssW: number,
+  cssH: number,
+  outfit: Outfit | null,
+  lane: number,
+  celebration: Celebration | null,
+  now: number,
+) {
+  const k = Math.min(cssW / 170, cssH / 260);
+  ctx.save();
+  ctx.translate(cssW / 2, cssH - 34 * k);
+  ctx.scale(k, k);
+  const top0 = poseTop(0);
+  const top: Pose = { ...top0, S: pt(0, -108) }; // feet end at y ≈ 0 (the floor line)
+  const since = now % 6000;
+  let pose: Pose;
+  if (!celebration) pose = topPose(top, now, lane, 0, 1);
+  else if (celebration === 'clap') {
+    const t = since % 4000;
+    pose = topPose(top, now, lane, t, 0);
+    if (t >= CLAP_END) pose = idlePose(pose, 'top', now, lane);
+  }
+  else pose = celebratePose(top, celebration, since, now, lane);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+  ctx.beginPath();
+  ctx.ellipse(0, 6, 42, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  drawClimber(ctx, outfit ? outfitColors(outfit, lane) : LOOKS[lane % LOOKS.length], pose);
+  ctx.restore();
+}
+
 /** Rysuje jedną połowę ekranu. */
 export class ClimbView {
   private ctx: CanvasRenderingContext2D;
@@ -763,6 +996,17 @@ export class ClimbView {
   private chalkCycle = -1;
   private chalkFrom = NaN;
   private claps = 0;
+  private outfitKey = '';
+  private outfitCol: Colors | null = null;
+  /** derived colours are cached – the outfit rarely changes */
+  private outfitCache(o: Outfit, lane: number): Colors {
+    const key = JSON.stringify(o) + lane;
+    if (key !== this.outfitKey || !this.outfitCol) {
+      this.outfitKey = key;
+      this.outfitCol = outfitColors(o, lane);
+    }
+    return this.outfitCol;
+  }
   /** which leg gets shaken out before START (picked at random each countdown) */
   private shakeLeg = 0;
   private comboShown = 0;
@@ -855,6 +1099,15 @@ export class ClimbView {
     }
   }
 
+  /** a big cloud of chalk thrown into the air */
+  private chalkBomb(at: P) {
+    for (let i = 0; i < 40; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.6;
+      const sp = 25 + Math.random() * 95;
+      this.parts.push({ x: at.x + (Math.random() - 0.5) * 20, y: at.y + Math.random() * 10, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, g: 22, life: 1800, max: 1800, r: 5 + Math.random() * 6, color: i % 3 ? '#ffffff' : '#f1ece0', shape: 'cloud' });
+    }
+  }
+
   private confetti(at: P) {
     const cols = ['#f2c94c', '#2fbf71', '#5b8fd1', '#e5484d', '#ffffff', '#8b6cc9'];
     for (let i = 0; i < 46; i++) {
@@ -904,6 +1157,15 @@ export class ClimbView {
         }
         ctx.fill();
         ctx.restore();
+      } else if (p.shape === 'cloud') {
+        // chalk cloud: soft white blob with a faint outline, so it reads on the light hall too
+        const rr = p.r * (1 + (1 - p.life / p.max) * 1.8);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(120, 110, 95, 0.35)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
       } else {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
@@ -968,10 +1230,29 @@ export class ClimbView {
         pose = lerpPose(this.topFrom!, top, easeOut(mf));
         pose = { ...pose, S: pt(pose.S.x, pose.S.y - Math.sin(Math.PI * mf) * 24) };
       } else {
-        pose = topPose(top, now, v.look, now - this.topAt - MANTLE_MS, v.rank);
-        if (!v.rank && now - this.topAt - MANTLE_MS >= CLAP_END) idle = 'top'; // the winner claps, then keeps pumping; the others just pant
         const since = now - this.topAt - MANTLE_MS;
-        if (!v.rank && v.present) for (const [k, at] of [[1, 1250], [2, 1550]] as const) if (since >= at && this.claps < k) { this.claps = k; this.puff(pt(pose.S.x, pose.S.y - 72)); }
+        const celeb: Celebration = v.celebration ?? 'clap';
+        const winner = !v.rank;
+        if (winner && celeb !== 'clap') {
+          pose = celebratePose(top, celeb, since, now, v.look);
+        } else {
+          pose = topPose(top, now, v.look, since, v.rank);
+          if (winner && since >= CLAP_END) idle = 'top'; // the winner claps, then keeps pumping; the others just pant
+        }
+        // one-shot effects of the celebration (chalk bomb, landing dust, clap puffs), once per cycle
+        if (winner && v.present) {
+          const cyc = Math.floor(since / CELEB_CYCLE[celeb]);
+          const tc = since - cyc * CELEB_CYCLE[celeb];
+          CELEB_FX[celeb].forEach(([at, fx], i) => {
+            const key = cyc * 10 + i + 1;
+            if (tc >= at && this.claps < key) {
+              this.claps = key;
+              if (fx === 'bomb') this.chalkBomb(pt(pose.S.x, pose.S.y - 84));
+              else if (fx === 'dust') this.puff(pt(pose.S.x, pose.S.y + 100));
+              else this.puff(pt(pose.S.x, pose.S.y - 72));
+            }
+          });
+        }
       }
       this.vh = v.hold;
     } else if (v.feedback === 'wrong' && age < 600) {
@@ -1000,7 +1281,7 @@ export class ClimbView {
     }
 
     const camMax = FLOOR_Y + 30 - Hd;
-    const target = Math.max(LEDGE_Y - 262, Math.min(pose.S.y - Hd * 0.70, camMax));
+    const target = Math.max(LEDGE_Y - 300, Math.min(pose.S.y - Hd * 0.70, camMax));
     if (Number.isNaN(this.cam)) this.cam = target;
     else this.cam += (target - this.cam) * (1 - Math.exp(-dt / 110));
     const shake = now < this.shakeUntil ? Math.sin(now / 18) * 4 : 0;
@@ -1392,7 +1673,7 @@ export class ClimbView {
       ctx.fill();
     }
 
-    if (v.present) drawClimber(ctx, LOOKS[v.look % LOOKS.length], pose);
+    if (v.present) drawClimber(ctx, v.outfit ? this.outfitCache(v.outfit, v.look) : LOOKS[v.look % LOOKS.length], pose);
 
     // particle bursts: a puff of chalk / stars on each hit, dust on a slip, confetti at the summit
     const stamp = Math.round(now - v.feedbackAge);

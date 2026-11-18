@@ -7,6 +7,8 @@ export interface PlayerMeta {
   joinedAt: number;
   /** gracz zalogowany (wynik może trafić do rankingu) */
   acct?: boolean;
+  /** custom outfit (validated with sanitizeOutfit by the receiver) */
+  outfit?: unknown;
 }
 
 export type Handler = (payload: any) => void;

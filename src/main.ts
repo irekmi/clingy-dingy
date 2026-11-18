@@ -37,7 +37,8 @@ import {
   type LeaderRow,
 } from './account';
 import { setAdsVisible } from './ads';
-import { ClimbView, MAX_PLAYERS, PLAYER_COLORS, PLAYER_HAIR } from './game/render';
+import { ClimbView, DEFAULT_OUTFIT, drawClimberPreview, MAX_PLAYERS, OUTFIT_OPTIONS, PLAYER_COLORS, PLAYER_HAIR, sanitizeOutfit, type Outfit } from './game/render';
+import { getMyOutfit, OPTION_NAMES, PART_LABELS, saveMyOutfit } from './outfit';
 import { INFO_LINKS, infoHtml, isInfoPage } from './pages';
 import { LocalTransport } from './net/localTransport';
 import { SupabaseTransport, createMatch, submitResult, supabaseConfigured } from './net/supabase';
@@ -110,8 +111,8 @@ const belka = (sub: string, opp: [string, string] = ['UP TO', '6']) => `
 const ord = (n: number) => `${n}${['TH', 'ST', 'ND', 'RD'][n % 10 > 3 || Math.floor((n % 100) / 10) === 1 ? 0 : n % 10]}`;
 
 /** avatar: hair colour (background) + shirt (bottom stripe), the colours of the player's look */
-const ava = (slot: number, sm = false) =>
-  `<span class="ava${sm ? ' sm' : ''}" style="--shirt:${color(slot)};--hair:${PLAYER_HAIR[Math.max(0, slot) % PLAYER_HAIR.length]}"></span>`;
+const ava = (slot: number, sm = false, o: Outfit | null = null) =>
+  `<span class="ava${sm ? ' sm' : ''}" style="--shirt:${o?.shirt ?? color(slot)};--hair:${o?.hair ?? PLAYER_HAIR[Math.max(0, slot) % PLAYER_HAIR.length]}"></span>`;
 
 const svg = (inner: string, size = 20) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -331,6 +332,11 @@ class Room {
   private starting = false;
   private finishAt = 0;
   private soloRes: { record: boolean; prevBest: number | null; stats: SoloStats } | null = null;
+  /** outfits of the others (from Presence, sanitized); kept after a player leaves */
+  private outfits = new Map<string, Outfit | null>();
+  private outfitOf(id: string): Outfit | null {
+    return id === this.me.id ? getMyOutfit() : (this.outfits.get(id) ?? null);
+  }
 
   /** `solo`: one-player run (no room, no opponents) – starts at once and can be retried endlessly */
   constructor(
@@ -338,7 +344,7 @@ class Room {
     readonly solo = false,
   ) {
     this.route = routeFor(`lobby-${code}`);
-    this.me = { id: PLAYER_ID, nick: getNick(), ready: null, joinedAt: Date.now(), acct: !!getAccount() };
+    this.me = { id: PLAYER_ID, nick: getNick(), ready: null, joinedAt: Date.now(), acct: !!getAccount(), outfit: getMyOutfit() };
     this.t = solo ? new SoloTransport() : USE_SUPABASE ? new SupabaseTransport(code) : new LocalTransport(code);
     this.t.on('start', (p) => this.onStart(p));
     this.t.on('pos', (p) => this.onPos(p));
@@ -412,6 +418,7 @@ class Room {
     const others = list
       .filter((p) => p && p.id !== this.me.id)
       .map((p) => ({ ...p, nick: cleanNick(p.nick) || '???' }));
+    for (const p of others) this.outfits.set(p.id, sanitizeOutfit(p.outfit));
     this.players = [...others, this.me].sort((a, b) => a.joinedAt - b.joinedAt || a.id.localeCompare(b.id));
     const present = new Set(this.players.map((p) => p.id));
     for (const p of this.players) {
@@ -697,6 +704,7 @@ class Room {
         combo: racing ? disp.combo : 0,
         chalkUp,
         rank: ranks?.get(this.me.id) ?? null,
+        outfit: getMyOutfit(),
       },
       now,
       dt,
@@ -727,6 +735,7 @@ class Room {
           finished: !!live && o.ms !== null,
           chalkUp,
           rank: ranks?.get(id) ?? null,
+          outfit: id === '__empty' ? null : this.outfitOf(id),
         },
         now,
         dt,
@@ -1167,7 +1176,7 @@ class Room {
             if (s.me) v = this.verify === 'ok' ? '<span class="v">✓</span>' : this.verify === 'bad' || this.verify === 'suspect' || this.verify === 'error' ? '<span class="v rej">✗</span>' : '';
             else v = s.valid ? '<span class="v">✓</span>' : '<span class="v rej">✗</span>';
           }
-          return `<div class="rank-row${i === 0 && s.valid ? ' first' : ''}${s.me ? ' me' : ''}"><span class="pos">${i + 1}</span>${ava(s.slot, true)}<span class="nm">${esc(s.nick)}${s.me ? ' (you)' : ''}</span>${v}<span class="t">${t}</span></div>`;
+          return `<div class="rank-row${i === 0 && s.valid ? ' first' : ''}${s.me ? ' me' : ''}"><span class="pos">${i + 1}</span>${ava(s.slot, true, this.outfitOf(s.id))}<span class="nm">${esc(s.nick)}${s.me ? ' (you)' : ''}</span>${v}<span class="t">${t}</span></div>`;
         })
         .join('');
       const tally = this.session.size
@@ -1199,7 +1208,7 @@ class Room {
       const p = a[i];
       if (!p) return `<div class="slot free">${ava(i)}Free lane</div>`;
       const isMe = p.id === this.me.id;
-      return `<div class="slot${p.ready ? ' ready' : ''}${isMe ? ' me' : ''}">${ava(i)}<div class="nm"><b>${esc(p.nick)}${isMe ? ' (you)' : ''}</b>${p.ready ? '<span class="pill ready">READY</span>' : '<span class="pill wait">WAITING</span>'}</div></div>`;
+      return `<div class="slot${p.ready ? ' ready' : ''}${isMe ? ' me' : ''}">${ava(i, false, this.outfitOf(p.id))}<div class="nm"><b>${esc(p.nick)}${isMe ? ' (you)' : ''}</b>${p.ready ? '<span class="pill ready">READY</span>' : '<span class="pill wait">WAITING</span>'}</div></div>`;
     }).join('');
     let status: string;
     let go = false;
@@ -1214,7 +1223,7 @@ class Room {
     if (this.phase === 'lobby' && this.participants.length && !this.participants.includes(this.me.id)) extra.push('A round is in progress – you will join the next one.');
     if (MODE_NOTE) extra.push(esc(MODE_NOTE));
     return `<div class="dim"></div><div class="studio menu2">
-      <div class="topbar2"><button class="btn small ghost" data-action="leave">← Leave room</button><span class="who2" style="margin-left:auto;margin-right:0">${ava(me, true)}${esc(this.me.nick)}</span></div>
+      <div class="topbar2"><button class="btn small ghost" data-action="leave">← Leave room</button><span class="who2" style="margin-left:auto;margin-right:0">${ava(me, true, getMyOutfit())}${esc(this.me.nick)}</span></div>
       <div class="b-wrap">
         <div class="b-card">
           <div class="room-code"><div><small>ROOM CODE</small><b>${esc(this.code)}</b></div><button data-action="copy">Copy link</button></div>
@@ -1252,6 +1261,118 @@ class Room {
       );
     }
   }
+}
+
+
+// ---------- edytor postaci (#/climber) ----------
+
+type Part = keyof typeof OUTFIT_OPTIONS;
+const editor = { outfit: { ...DEFAULT_OUTFIT } as Outfit };
+
+const PEN = svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>', 14);
+const NO_BAND = svg('<circle cx="12" cy="12" r="8"/><path d="M6.5 17.5l11-11"/>', 22);
+
+/** a small head with the hair style, in the current hair and skin colours */
+function hairIcon(style: string, hair: string, skin: string): string {
+  const head = `<circle cx="18" cy="19" r="9" fill="${skin}"/>`;
+  const cap = `<path d="M8.5 17 Q8.5 8 18 8 Q27.5 8 27.5 17 Q23 12.5 18 12.5 Q13 12.5 8.5 17Z" fill="${hair}"/>`;
+  let extra = '';
+  if (style === 'pony') extra = `<ellipse cx="29" cy="13" rx="4.5" ry="3" fill="${hair}" transform="rotate(35 29 13)"/>`;
+  else if (style === 'curly')
+    extra = [[10, 13], [14, 9], [19, 8], [24, 9], [27, 13], [8, 18], [28, 18]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.6" fill="${hair}"/>`).join('');
+  else if (style === 'long') extra = `<path d="M8.5 16 Q7 26 10 31 L14 29 Q12 22 13 15Z M27.5 16 Q29 26 26 31 L22 29 Q24 22 23 15Z" fill="${hair}"/>`;
+  return `<svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true">${style === 'long' ? extra : ''}${head}${cap}${style === 'long' ? '' : extra}</svg>`;
+}
+
+function editorHtml(): string {
+  const o = editor.outfit;
+  const sections = PART_LABELS.map(([part, label]) => {
+    const opts = OUTFIT_OPTIONS[part] as readonly (string | null)[];
+    const cur = opts.indexOf(o[part] as string | null);
+    const tiles = opts
+      .map((v, i) => {
+        const name = OPTION_NAMES[part][i];
+        let inner = '';
+        let style = v ? `style="--c:${v}"` : '';
+        if (part === 'hairStyle') {
+          inner = hairIcon(v!, o.hair, o.skin);
+          style = '';
+        } else if (part === 'band' && v === null) inner = NO_BAND;
+        return `<button class="tile${part === 'hairStyle' ? ' style' : ''}" ${style} aria-pressed="${i === cur}" aria-label="${label} ${name}" title="${name}" data-action="ed-opt" data-part="${part}" data-i="${i}">${inner}</button>`;
+      })
+      .join('');
+    return `<div class="opt"><span>${label} · <b>${OPTION_NAMES[part][Math.max(0, cur)]}</b></span><div class="tiles">${tiles}</div></div>`;
+  }).join('');
+  const nick = getAccount()?.nick ?? getNick();
+  return `<div class="dim"></div><div class="studio editor-wrap">
+    <div class="topbar2"><button class="btn small ghost" data-action="ed-back">← Back</button><span class="ed-title">YOUR CLIMBER</span><button class="btn small blue" data-action="ed-random">Random</button></div>
+    <div class="editor">
+      <div class="editor-preview"><div class="floor"></div><canvas id="climber-cv" aria-label="Your climber"></canvas><span class="caption" style="border-color:${color(0)}">${esc(nick)}</span></div>
+      <div class="b-card ed-card">
+        <div class="seg" role="tablist"><button role="tab" aria-selected="true">LOOK</button><button role="tab" aria-selected="false" disabled title="Coming soon">VICTORY</button></div>
+        <div class="opt-grid">${sections}</div>
+        <div class="res-actions"><button class="btn green" data-action="ed-save">Save</button><button class="btn ghost" data-action="ed-reset">Reset</button></div>
+      </div>
+    </div></div>`;
+}
+
+function renderEditor() {
+  const scroll = document.querySelector('.ed-card')?.scrollTop ?? 0;
+  paintOverlay(editorHtml(), 'climber');
+  const card = document.querySelector('.ed-card');
+  if (card) card.scrollTop = scroll;
+}
+
+function editorAction(action: string, el?: HTMLElement): boolean {
+  switch (action) {
+    case 'ed-opt': {
+      const part = el?.dataset.part as Part | undefined;
+      const i = Number(el?.dataset.i);
+      if (!part || !(part in OUTFIT_OPTIONS)) return true;
+      const v = (OUTFIT_OPTIONS[part] as readonly unknown[])[i];
+      if (v === undefined) return true;
+      editor.outfit = { ...editor.outfit, [part]: v } as Outfit;
+      renderEditor();
+      return true;
+    }
+    case 'ed-random': {
+      const pick = <T>(a: readonly T[]) => a[Math.floor(Math.random() * a.length)];
+      const O = OUTFIT_OPTIONS;
+      editor.outfit = { skin: pick(O.skin), hairStyle: pick(O.hairStyle), hair: pick(O.hair), band: pick(O.band), shirt: pick(O.shirt), pants: pick(O.pants), shoes: pick(O.shoes) };
+      renderEditor();
+      return true;
+    }
+    case 'ed-reset':
+      editor.outfit = { ...DEFAULT_OUTFIT };
+      renderEditor();
+      return true;
+    case 'ed-save':
+      saveMyOutfit(editor.outfit);
+      location.hash = '#/';
+      return true;
+    case 'ed-back':
+      location.hash = '#/';
+      return true;
+  }
+  return false;
+}
+
+/** the live preview in the editor (called every frame) */
+function drawEditorPreview(now: number) {
+  const cv = document.getElementById('climber-cv') as HTMLCanvasElement | null;
+  if (!cv) return;
+  const w = cv.clientWidth;
+  const h = cv.clientHeight;
+  if (!w || !h) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+  }
+  const ctx = cv.getContext('2d')!;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  drawClimberPreview(ctx, w, h - 30, editor.outfit, 0, null, now);
 }
 
 // ---------- menu, konto, ranking ----------
@@ -1293,7 +1414,7 @@ function topbarHtml(): string {
 /** v2 top bar: who I am, ranking, help, log in / my account */
 function topbar2Html(): string {
   const acc = getAccount();
-  const who = `<span class="who2">${ava(0, true)}${esc(acc?.nick ?? getNick())}${acc ? '' : '<i>GUEST</i>'}</span>`;
+  const who = `<a class="who2" href="#/climber" title="Edit your climber">${ava(0, true, getMyOutfit())}${esc(acc?.nick ?? getNick())}${acc ? '' : '<i>GUEST</i>'}<span class="pen">${PEN}</span></a>`;
   const help = `<a class="icon-btn" href="#/info/how-to-play" aria-label="How to play">${ICON_HELP}</a>`;
   if (!accountsEnabled) return `<div class="topbar2">${who}${help}</div>`;
   const rank = `<button class="icon-btn" data-action="view-ranking" aria-label="Ranking">${ICON_TROPHY}</button>`;
@@ -1460,6 +1581,7 @@ function menuHtml(): string {
 }
 
 function renderMenu() {
+  if (location.hash === '#/climber') return renderEditor();
   if (!room && !accountPending()) paintOverlay(menuHtml(), 'menu-' + menu.view); // wait for a saved login, no guest flash
 }
 
@@ -1505,7 +1627,8 @@ async function openAccount() {
   if (menu.view === 'account') renderMenu();
 }
 
-async function menuAction(action: string) {
+async function menuAction(action: string, el?: HTMLElement) {
+  if (editorAction(action, el)) return;
   // z podstrony informacyjnej wracamy do menu bez przeładowania widoku
   if (location.hash.startsWith('#/info/')) history.replaceState(null, '', location.pathname + location.search);
   menu.error = '';
@@ -1683,6 +1806,11 @@ function route() {
     room?.destroy();
     room = new Room(code);
     if (import.meta.env.DEV) (window as unknown as { __room: Room }).__room = room; // tylko do debugowania
+  } else if (location.hash === '#/climber') {
+    room?.destroy();
+    room = null;
+    editor.outfit = { ...(getMyOutfit() ?? DEFAULT_OUTFIT) };
+    renderEditor();
   } else if (/^#\/info\/[a-z-]+$/.test(location.hash) && isInfoPage(location.hash.slice(7))) {
     room?.destroy();
     room = null;
@@ -1711,7 +1839,8 @@ function loop(now: number) {
     syncOppPanels(['__idle']);
     $('tap-pads').style.display = 'none';
     const idle = { route: IDLE_ROUTE, hold: 0, feedback: 'none' as Feedback, feedbackAge: 1e9, ring: null, showHints: false, present: true, finished: false };
-    meView.draw({ ...idle, look: 0 }, now, dt);
+    meView.draw({ ...idle, look: 0, outfit: getMyOutfit() }, now, dt);
+    drawEditorPreview(now);
     oppPanels.get('__idle')?.view.draw({ ...idle, look: 1 }, now, dt);
   }
   setAdsVisible(room ? room.adsAllowed() : true);
@@ -1724,7 +1853,7 @@ overlay.addEventListener('click', (e) => {
   if (!el || (el as HTMLButtonElement).disabled) return;
   const action = el.dataset.action!;
   if (room) room.handleAction(action, el);
-  else void menuAction(action);
+  else void menuAction(action, el);
 });
 overlay.addEventListener('keydown', (e) => {
   const target = e.target as HTMLElement;
