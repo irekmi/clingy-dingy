@@ -16,6 +16,7 @@ import {
   type SimState,
 } from '@sim';
 import {
+  accountPending,
   accountsEnabled,
   changeNick,
   fetchHistory,
@@ -24,6 +25,7 @@ import {
   getAccount,
   initAccounts,
   onAccountChange,
+  onAccountReady,
   onPasswordRecovery,
   plError,
   resetPassword,
@@ -119,7 +121,7 @@ const ICON_INFO = svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01
 
 /** a note for guests (no session); nothing for a logged-in player */
 const guestNote = (text: string) =>
-  accountsEnabled && !getAccount()
+  accountsEnabled && !accountPending() && !getAccount()
     ? `<div class="guest-note">${ICON_INFO}<span>${esc(text)}</span><a role="button" tabindex="0" data-action="view-login">Log in</a></div>`
     : '';
 
@@ -1458,7 +1460,7 @@ function menuHtml(): string {
 }
 
 function renderMenu() {
-  if (!room) paintOverlay(menuHtml(), 'menu-' + menu.view);
+  if (!room && !accountPending()) paintOverlay(menuHtml(), 'menu-' + menu.view); // wait for a saved login, no guest flash
 }
 
 const val = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value ?? '';
@@ -1747,6 +1749,7 @@ onPasswordRecovery(() => {
   menu.error = '';
   if (!room) renderMenu();
 });
+onAccountReady(() => (room ? room.refresh() : location.hash.startsWith('#/info/') ? route() : renderMenu()));
 initAccounts();
 window.addEventListener('hashchange', route);
 route();

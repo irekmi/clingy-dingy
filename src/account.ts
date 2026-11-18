@@ -21,6 +21,33 @@ const recoveryListeners = new Set<() => void>();
 export const accountsEnabled = supabaseConfigured;
 export const getAccount = () => current;
 
+/**
+ * A saved session is restored asynchronously (token refresh + profile query). Until that is done the UI would
+ * flash the guest screen, so we know up front (from the stored token) that a login is on its way.
+ */
+function hasStoredSession(): boolean {
+  if (!supabaseConfigured) return false;
+  try {
+    for (let i = 0; i < localStorage.length; i++) if (/^sb-.+-auth-token$/.test(localStorage.key(i) ?? '')) return true;
+  } catch {
+    /* no storage */
+  }
+  return false;
+}
+let pending = hasStoredSession();
+const readyListeners = new Set<() => void>();
+/** true while a saved login is still being restored */
+export const accountPending = () => pending;
+export function onAccountReady(cb: () => void) {
+  readyListeners.add(cb);
+  return () => readyListeners.delete(cb);
+}
+function settle() {
+  if (!pending) return;
+  pending = false;
+  readyListeners.forEach((cb) => cb());
+}
+
 /** Użytkownik kliknął link „zresetuj hasło” z e-maila – trzeba pokazać formularz nowego hasła. */
 export function onPasswordRecovery(cb: () => void) {
   recoveryListeners.add(cb);
@@ -39,17 +66,21 @@ async function loadProfile(userId: string, email: string): Promise<Account> {
 
 function emit(a: Account | null) {
   current = a;
+  pending = false;
   listeners.forEach((cb) => cb(a));
+  readyListeners.forEach((cb) => cb());
 }
 
 /** Uruchamia nasłuch sesji (także po kliknięciu linku z e-maila). */
 export function initAccounts() {
   if (!accountsEnabled) return;
+  window.setTimeout(settle, 4000); // never keep the screen blank if the restore hangs
   getClient().auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') recoveryListeners.forEach((cb) => cb());
     const user = session?.user;
     if (!user) {
       if (current) emit(null);
+      else settle();
       return;
     }
     if (current?.userId === user.id) return;
