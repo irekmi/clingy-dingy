@@ -607,6 +607,8 @@ class Room {
     }
     const ring = racing && t >= disp.cycleStart ? { p: (t - disp.cycleStart) / disp.period, dt: t - (disp.cycleStart + disp.period) } : null;
     const inMatch = this.inMatch();
+    const chalkUp = this.phase === 'countdown';
+    const ranks = this.phase === 'results' ? new Map(this.standings().map((s, i) => [s.id, i])) : null;
     meView.draw(
       {
         route: this.route,
@@ -618,6 +620,9 @@ class Room {
         look: this.slotOf(this.me.id),
         present: true,
         finished: this.myMs !== null,
+        combo: racing ? disp.combo : 0,
+        chalkUp,
+        rank: ranks?.get(this.me.id) ?? null,
       },
       now,
       dt,
@@ -641,6 +646,8 @@ class Room {
           look: slot,
           present: id !== '__empty' && (live ? !o.left : !!pl),
           finished: !!live && o.ms !== null,
+          chalkUp,
+          rank: ranks?.get(id) ?? null,
         },
         now,
         dt,
